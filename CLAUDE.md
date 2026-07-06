@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## CRITICAL: Never Push or Open PRs to Upstream
+
+This repo is a fork (`mizuikki/claude-code-hub`, remote `origin`); upstream is `ding113/claude-code-hub` (remote `upstream`). Never push, create branches, or open PRs against upstream — all PRs target this fork's `dev` only. Never run `git push upstream ...` or `gh pr create --repo ding113/claude-code-hub ...`; verify the target is `mizuikki/claude-code-hub` before opening any PR.
+
 ## Repository Info
 
 - **Source**: https://github.com/ding113/claude-code-hub
