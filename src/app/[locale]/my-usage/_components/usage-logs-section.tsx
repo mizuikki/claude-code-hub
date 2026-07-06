@@ -274,17 +274,15 @@ export function UsageLogsSection({
                 </Select>
               </div>
               <div className="space-y-1.5 lg:col-span-4">
-                <Label>{tDashboard("logs.filters.includeNonBillingEndpoints")}</Label>
+                <Label htmlFor="my-usage-include-non-billing-endpoints">
+                  {tDashboard("logs.filters.includeNonBillingEndpoints")}
+                </Label>
                 <div className="flex items-center justify-between gap-3 rounded-lg border bg-card px-3 py-2.5">
-                  <div className="min-w-0 space-y-0.5">
-                    <p className="text-sm font-medium leading-none">
-                      {tDashboard("logs.filters.includeNonBillingEndpoints")}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {tDashboard("logs.filters.includeNonBillingEndpointsHint")}
-                    </p>
-                  </div>
+                  <p className="min-w-0 text-muted-foreground text-xs">
+                    {tDashboard("logs.filters.includeNonBillingEndpointsHint")}
+                  </p>
                   <Switch
+                    id="my-usage-include-non-billing-endpoints"
                     checked={draftFilters.includeNonBillingEndpoints ?? false}
                     onCheckedChange={(checked) =>
                       handleFilterChange({

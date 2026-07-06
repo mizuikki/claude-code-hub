@@ -2,7 +2,8 @@ import { afterAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { inArray } from "drizzle-orm";
 import { db } from "@/drizzle/db";
 import { keys, messageRequest, usageLedger, users } from "@/drizzle/schema";
-import { resolveSystemTimezone } from "@/lib/utils/timezone";
+
+const TEST_TIMEZONE = "UTC";
 
 let callActionsRouteImpl: typeof import("../test-utils")["callActionsRoute"] | undefined;
 const originalSessionTokenMode = process.env.SESSION_TOKEN_MODE;
@@ -60,6 +61,16 @@ vi.mock("next-intl/server", () => ({
   getTranslations: vi.fn(async () => (key: string) => key),
 }));
 
+vi.mock("@/lib/utils/timezone", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/lib/utils/timezone")>("@/lib/utils/timezone");
+
+  return {
+    ...actual,
+    resolveSystemTimezone: vi.fn(async () => "UTC"),
+  };
+});
+
 type TestKey = { id: number; userId: number; key: string; name: string };
 type TestUser = { id: number; name: string };
 
@@ -92,8 +103,7 @@ function getStableRecentUtcTimestamp(): number {
   );
 }
 
-async function getServerDateString(timestamp: number): Promise<string> {
-  const timezone = await resolveSystemTimezone();
+function getServerDateString(timestamp: number, timezone: string = TEST_TIMEZONE): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
     year: "numeric",
@@ -700,7 +710,7 @@ describe.skipIf(!process.env.DSN)("my-usage API：只读 Key 自助查询", () =
     createdKeyIds.push(keyB.id);
 
     const timestamp = getStableRecentUtcTimestamp();
-    const today = await getServerDateString(timestamp);
+    const today = getServerDateString(timestamp);
     const t0 = new Date(timestamp);
 
     // Key A 的请求
@@ -859,8 +869,8 @@ describe.skipIf(!process.env.DSN)("my-usage API：只读 Key 自助查询", () =
     const yesterdayTs = todayTs - 24 * 60 * 60 * 1000;
     const today = new Date(todayTs);
     const yesterday = new Date(yesterdayTs);
-    const todayStr = await getServerDateString(todayTs);
-    const yesterdayStr = await getServerDateString(yesterdayTs);
+    const todayStr = getServerDateString(todayTs);
+    const yesterdayStr = getServerDateString(yesterdayTs);
 
     // 昨天的请求
     const m1 = await createMessage({
@@ -942,7 +952,7 @@ describe.skipIf(!process.env.DSN)("my-usage API：只读 Key 自助查询", () =
     createdKeyIds.push(otherKey.id);
 
     const now = getStableRecentUtcTimestamp();
-    const today = await getServerDateString(now);
+    const today = getServerDateString(now);
     const visibleIp = "203.0.113.29";
 
     createdLedgerRequestIds.push(
@@ -1061,7 +1071,7 @@ describe.skipIf(!process.env.DSN)("my-usage API：只读 Key 自助查询", () =
     createdKeyIds.push(key.id);
 
     const now = getStableRecentUtcTimestamp();
-    const today = await getServerDateString(now);
+    const today = getServerDateString(now);
 
     const importedRequestId = await insertLedgerOnlyRow({
       userId: user.id,

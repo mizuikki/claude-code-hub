@@ -305,17 +305,15 @@ export function RequestFilters({
       </div>
 
       <div className="space-y-2">
-        <Label>{t("logs.filters.includeNonBillingEndpoints")}</Label>
+        <Label htmlFor="request-filters-include-non-billing-endpoints">
+          {t("logs.filters.includeNonBillingEndpoints")}
+        </Label>
         <div className="flex items-center justify-between gap-3 rounded-lg border bg-card px-3 py-2.5">
-          <div className="min-w-0 space-y-0.5">
-            <p className="text-sm font-medium leading-none">
-              {t("logs.filters.includeNonBillingEndpoints")}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {t("logs.filters.includeNonBillingEndpointsHint")}
-            </p>
-          </div>
+          <p className="min-w-0 text-muted-foreground text-xs">
+            {t("logs.filters.includeNonBillingEndpointsHint")}
+          </p>
           <Switch
+            id="request-filters-include-non-billing-endpoints"
             checked={filters.includeNonBillingEndpoints ?? false}
             onCheckedChange={(checked) =>
               onFiltersChange({

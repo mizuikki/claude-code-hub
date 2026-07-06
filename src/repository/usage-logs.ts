@@ -1609,15 +1609,16 @@ export async function findUsageLogsStats(
   const includeMixedStats =
     !ledgerOnly && filters.includeNonBillingEndpoints === true && !filters.endpoint?.trim();
 
-  const billableSummary = await findBillableUsageLogStats(filters, ledgerOnly);
-
   if (!includeMixedStats) {
-    return billableSummary;
+    return findBillableUsageLogStats(filters, ledgerOnly);
   }
 
-  const nonBillingSummary = await findMessageRequestUsageLogStats(filters, {
-    nonBillingOnly: true,
-  });
+  const [billableSummary, nonBillingSummary] = await Promise.all([
+    findBillableUsageLogStats(filters, ledgerOnly),
+    findMessageRequestUsageLogStats(filters, {
+      nonBillingOnly: true,
+    }),
+  ]);
 
   return mergeUsageLogSummaries(billableSummary, nonBillingSummary);
 }
