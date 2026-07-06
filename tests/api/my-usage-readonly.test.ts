@@ -67,7 +67,7 @@ vi.mock("@/lib/utils/timezone", async () => {
 
   return {
     ...actual,
-    resolveSystemTimezone: vi.fn(async () => "UTC"),
+    resolveSystemTimezone: vi.fn(async () => TEST_TIMEZONE),
   };
 });
 
