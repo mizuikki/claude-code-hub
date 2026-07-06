@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { getUsageLogSessionIdSuggestions } from "@/lib/api-client/v1/actions/usage-logs";
 import { SESSION_ID_SUGGESTION_MIN_LEN } from "@/lib/constants/usage-logs.constants";
 import { useDebounce } from "@/lib/hooks/use-debounce";
@@ -301,6 +302,27 @@ export function RequestFilters({
             )}
           </SelectContent>
         </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="request-filters-include-non-billing-endpoints">
+          {t("logs.filters.includeNonBillingEndpoints")}
+        </Label>
+        <div className="flex items-center justify-between gap-3 rounded-lg border bg-card px-3 py-2.5">
+          <p className="min-w-0 text-muted-foreground text-xs">
+            {t("logs.filters.includeNonBillingEndpointsHint")}
+          </p>
+          <Switch
+            id="request-filters-include-non-billing-endpoints"
+            checked={filters.includeNonBillingEndpoints ?? false}
+            onCheckedChange={(checked) =>
+              onFiltersChange({
+                ...filters,
+                includeNonBillingEndpoints: checked ? true : undefined,
+              })
+            }
+          />
+        </div>
       </div>
 
       {/* Session ID with suggestions */}
