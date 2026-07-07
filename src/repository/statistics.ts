@@ -1,5 +1,6 @@
 import "server-only";
 
+import { fromZonedTime } from "date-fns-tz";
 import type { SQL } from "drizzle-orm";
 import { and, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { db } from "@/drizzle/db";
@@ -128,8 +129,8 @@ function getTimeRangeSqlConfig(timeRange: TimeRange, timezone: string): SqlTimeR
         bucketExpr: sql`DATE_TRUNC('day', usage_ledger.created_at AT TIME ZONE ${timezone})`,
         bucketSeriesQuery: sql`
           SELECT generate_series(
-            DATE_TRUNC('month', CURRENT_TIMESTAMP AT TIME ZONE ${timezone})::date,
-            (CURRENT_TIMESTAMP AT TIME ZONE ${timezone})::date,
+            DATE_TRUNC('month', CURRENT_TIMESTAMP AT TIME ZONE ${timezone}),
+            DATE_TRUNC('day', CURRENT_TIMESTAMP AT TIME ZONE ${timezone}),
             '1 day'::interval
           ) AS bucket
         `,
@@ -139,9 +140,33 @@ function getTimeRangeSqlConfig(timeRange: TimeRange, timezone: string): SqlTimeR
   }
 }
 
-function normalizeBucketDate(value: TimeBucketValue): Date | null {
+function formatLocalDateTime(value: Date): string {
+  const year = value.getFullYear();
+  const month = `${value.getMonth() + 1}`.padStart(2, "0");
+  const day = `${value.getDate()}`.padStart(2, "0");
+  const hours = `${value.getHours()}`.padStart(2, "0");
+  const minutes = `${value.getMinutes()}`.padStart(2, "0");
+  const seconds = `${value.getSeconds()}`.padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+}
+
+function normalizeBucketInstant(value: TimeBucketValue, timezone: string): Date | null {
   if (!value) return null;
-  const parsed = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+
+  let localDateTime: string;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    localDateTime = formatLocalDateTime(value);
+  } else {
+    const match =
+      /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}(?::?\d{2})?)?$/.exec(
+        value
+      );
+    if (!match) return null;
+    localDateTime = `${match[1]}T${match[2]}`;
+  }
+
+  const parsed = fromZonedTime(localDateTime, timezone);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
@@ -160,7 +185,7 @@ async function getTimeBuckets(timeRange: TimeRange, timezone: string): Promise<D
   const { bucketSeriesQuery } = getTimeRangeSqlConfig(timeRange, timezone);
   const result = await db.execute(bucketSeriesQuery);
   return (Array.from(result) as Array<{ bucket: TimeBucketValue }>)
-    .map((row) => normalizeBucketDate(row.bucket))
+    .map((row) => normalizeBucketInstant(row.bucket, timezone))
     .filter((bucket): bucket is Date => bucket !== null)
     .sort((a, b) => a.getTime() - b.getTime());
 }
@@ -168,11 +193,12 @@ async function getTimeBuckets(timeRange: TimeRange, timezone: string): Promise<D
 function zeroFillUserStats(
   dbRows: UserBucketStatsRow[],
   allUsers: Array<{ id: number; name: string }>,
-  buckets: Date[]
+  buckets: Date[],
+  timezone: string
 ): RuntimeDatabaseStatRow[] {
   const rowMap = new Map<string, { api_calls: number; total_cost: string | number }>();
   for (const row of dbRows) {
-    const bucket = normalizeBucketDate(row.bucket);
+    const bucket = normalizeBucketInstant(row.bucket, timezone);
     if (!bucket) continue;
 
     rowMap.set(`${row.user_id}:${bucket.getTime()}`, {
@@ -204,11 +230,12 @@ function zeroFillUserStats(
 function zeroFillKeyStats(
   dbRows: KeyBucketStatsRow[],
   allKeys: Array<{ id: number; name: string }>,
-  buckets: Date[]
+  buckets: Date[],
+  timezone: string
 ): RuntimeDatabaseKeyStatRow[] {
   const rowMap = new Map<string, { api_calls: number; total_cost: string | number }>();
   for (const row of dbRows) {
-    const bucket = normalizeBucketDate(row.bucket);
+    const bucket = normalizeBucketInstant(row.bucket, timezone);
     if (!bucket) continue;
 
     rowMap.set(`${row.key_id}:${bucket.getTime()}`, {
@@ -239,11 +266,12 @@ function zeroFillKeyStats(
 
 function zeroFillMixedOthersStats(
   dbRows: MixedOthersBucketStatsRow[],
-  buckets: Date[]
+  buckets: Date[],
+  timezone: string
 ): RuntimeDatabaseStatRow[] {
   const rowMap = new Map<number, { api_calls: number; total_cost: string | number }>();
   for (const row of dbRows) {
-    const bucket = normalizeBucketDate(row.bucket);
+    const bucket = normalizeBucketInstant(row.bucket, timezone);
     if (!bucket) continue;
 
     rowMap.set(bucket.getTime(), {
@@ -267,8 +295,11 @@ function zeroFillMixedOthersStats(
 /**
  * 根据时间范围获取用户消费和API调用统计
  */
-export async function getUserStatisticsFromDB(timeRange: TimeRange): Promise<DatabaseStatRow[]> {
-  const timezone = await resolveSystemTimezone();
+export async function getUserStatisticsFromDB(
+  timeRange: TimeRange,
+  timezoneOverride?: string
+): Promise<DatabaseStatRow[]> {
+  const timezone = timezoneOverride ?? (await resolveSystemTimezone());
   const { startTs, endTs, bucketExpr } = getTimeRangeSqlConfig(timeRange, timezone);
 
   const statsQuery = sql`
@@ -295,7 +326,7 @@ export async function getUserStatisticsFromDB(timeRange: TimeRange): Promise<Dat
   ]);
 
   const rows = Array.from(statsResult) as UserBucketStatsRow[];
-  return zeroFillUserStats(rows, users, buckets) as unknown as DatabaseStatRow[];
+  return zeroFillUserStats(rows, users, buckets, timezone) as unknown as DatabaseStatRow[];
 }
 
 /**
@@ -318,9 +349,10 @@ export async function getActiveUsersFromDB(): Promise<DatabaseUser[]> {
  */
 export async function getKeyStatisticsFromDB(
   userId: number,
-  timeRange: TimeRange
+  timeRange: TimeRange,
+  timezoneOverride?: string
 ): Promise<DatabaseKeyStatRow[]> {
-  const timezone = await resolveSystemTimezone();
+  const timezone = timezoneOverride ?? (await resolveSystemTimezone());
   const { startTs, endTs, bucketExpr } = getTimeRangeSqlConfig(timeRange, timezone);
 
   const statsQuery = sql`
@@ -349,7 +381,7 @@ export async function getKeyStatisticsFromDB(
   ]);
 
   const rows = Array.from(statsResult) as KeyBucketStatsRow[];
-  return zeroFillKeyStats(rows, activeKeys, buckets) as unknown as DatabaseKeyStatRow[];
+  return zeroFillKeyStats(rows, activeKeys, buckets, timezone) as unknown as DatabaseKeyStatRow[];
 }
 
 /**
@@ -374,12 +406,13 @@ export async function getActiveKeysForUserFromDB(userId: number): Promise<Databa
  */
 export async function getMixedStatisticsFromDB(
   userId: number,
-  timeRange: TimeRange
+  timeRange: TimeRange,
+  timezoneOverride?: string
 ): Promise<{
   ownKeys: DatabaseKeyStatRow[];
   othersAggregate: DatabaseStatRow[];
 }> {
-  const timezone = await resolveSystemTimezone();
+  const timezone = timezoneOverride ?? (await resolveSystemTimezone());
   const { startTs, endTs, bucketExpr } = getTimeRangeSqlConfig(timeRange, timezone);
 
   const ownKeysQuery = sql`
@@ -426,11 +459,13 @@ export async function getMixedStatisticsFromDB(
     ownKeys: zeroFillKeyStats(
       Array.from(ownKeysResult) as KeyBucketStatsRow[],
       activeKeys,
-      buckets
+      buckets,
+      timezone
     ) as unknown as DatabaseKeyStatRow[],
     othersAggregate: zeroFillMixedOthersStats(
       Array.from(othersResult) as MixedOthersBucketStatsRow[],
-      buckets
+      buckets,
+      timezone
     ) as unknown as DatabaseStatRow[],
   };
 }

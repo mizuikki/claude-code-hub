@@ -1,6 +1,6 @@
 {
-  "id": "7fbac0a9-5686-4db2-831b-ac5e156af734",
-  "prevId": "1875f856-3dca-426e-83e6-0388c99e9296",
+  "id": "c054c34a-98a4-4ae1-b0e5-0b663380f123",
+  "prevId": "f37176a3-a5e2-4209-8e0e-f4d9f170def4",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -229,6 +229,70 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.cloud_pricing_catalog": {
+      "name": "cloud_pricing_catalog",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'USD'"
+        },
+        "refreshed_at": {
+          "name": "refreshed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "providers": {
+          "name": "providers",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vendors": {
+          "name": "vendors",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "model_count": {
+          "name": "model_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "synced_at": {
+          "name": "synced_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.error_rules": {
       "name": "error_rules",
       "schema": "",
@@ -251,13 +315,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'regex'"
-        },
-        "retry_on_match": {
-          "name": "retry_on_match",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
         },
         "category": {
           "name": "category",
@@ -733,12 +790,6 @@
         },
         "output_tokens": {
           "name": "output_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reasoning_output_tokens": {
-          "name": "reasoning_output_tokens",
           "type": "bigint",
           "primaryKey": false,
           "notNull": false
@@ -1419,7 +1470,7 @@
           "type": "varchar(20)",
           "primaryKey": false,
           "notNull": true,
-          "default": "'litellm'"
+          "default": "'cloud'"
         },
         "created_at": {
           "name": "created_at",
@@ -1501,6 +1552,36 @@
           "isUnique": false,
           "concurrently": false,
           "method": "btree",
+          "with": {}
+        },
+        "idx_model_prices_vendor": {
+          "name": "idx_model_prices_vendor",
+          "columns": [
+            {
+              "expression": "((\"price_data\" ->> 'vendor'))",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_model_prices_aliases": {
+          "name": "idx_model_prices_aliases",
+          "columns": [
+            {
+              "expression": "((\"price_data\" -> 'aliases'))",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "gin",
           "with": {}
         }
       },
@@ -2744,14 +2825,14 @@
           "primaryKey": false,
           "notNull": false
         },
-        "codex_service_tier_preference": {
-          "name": "codex_service_tier_preference",
-          "type": "varchar(20)",
+        "codex_image_generation_preference": {
+          "name": "codex_image_generation_preference",
+          "type": "varchar(10)",
           "primaryKey": false,
           "notNull": false
         },
-        "deepseek_reasoning_effort_preference": {
-          "name": "deepseek_reasoning_effort_preference",
+        "codex_service_tier_preference": {
+          "name": "codex_service_tier_preference",
           "type": "varchar(20)",
           "primaryKey": false,
           "notNull": false
@@ -3480,6 +3561,13 @@
           "notNull": true,
           "default": true
         },
+        "enable_gemini_function_id_rectifier": {
+          "name": "enable_gemini_function_id_rectifier",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
         "enable_billing_header_rectifier": {
           "name": "enable_billing_header_rectifier",
           "type": "boolean",
@@ -3754,12 +3842,6 @@
         },
         "output_tokens": {
           "name": "output_tokens",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reasoning_output_tokens": {
-          "name": "reasoning_output_tokens",
           "type": "bigint",
           "primaryKey": false,
           "notNull": false

@@ -150,6 +150,7 @@ export function toProvider(dbProvider: any): Provider {
     codexReasoningSummaryPreference: dbProvider?.codexReasoningSummaryPreference ?? null,
     codexTextVerbosityPreference: dbProvider?.codexTextVerbosityPreference ?? null,
     codexParallelToolCallsPreference: dbProvider?.codexParallelToolCallsPreference ?? null,
+    codexImageGenerationPreference: dbProvider?.codexImageGenerationPreference ?? null,
     codexServiceTierPreference: dbProvider?.codexServiceTierPreference ?? null,
     anthropicMaxTokensPreference: dbProvider?.anthropicMaxTokensPreference ?? null,
     anthropicThinkingBudgetPreference: dbProvider?.anthropicThinkingBudgetPreference ?? null,
@@ -269,6 +270,7 @@ export function toSystemSettings(dbSettings: any): SystemSettings {
     enableThinkingBudgetRectifier: dbSettings?.enableThinkingBudgetRectifier ?? true,
     enableThinkingEffortConflictRectifier:
       dbSettings?.enableThinkingEffortConflictRectifier ?? true,
+    enableGeminiFunctionIdRectifier: dbSettings?.enableGeminiFunctionIdRectifier ?? true,
     enableBillingHeaderRectifier: dbSettings?.enableBillingHeaderRectifier ?? true,
     enableResponseInputRectifier: dbSettings?.enableResponseInputRectifier ?? true,
     allowNonConversationEndpointProviderFallback:
