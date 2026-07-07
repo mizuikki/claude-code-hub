@@ -56,6 +56,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
+    const before = await getSystemSettings();
 
     // 验证请求数据
     const validated = UpdateSystemSettingsSchema.parse(body);
@@ -67,6 +68,8 @@ export async function POST(req: Request) {
       currencyDisplay: validated.currencyDisplay,
       billingModelSource: validated.billingModelSource,
       codexPriorityBillingSource: validated.codexPriorityBillingSource,
+      billNonSuccessfulRequests: validated.billNonSuccessfulRequests,
+      billHedgeLosers: validated.billHedgeLosers,
       timezone: validated.timezone,
       enableAutoCleanup: validated.enableAutoCleanup,
       cleanupRetentionDays: validated.cleanupRetentionDays,
@@ -81,9 +84,13 @@ export async function POST(req: Request) {
       interceptAnthropicWarmupRequests: validated.interceptAnthropicWarmupRequests,
       enableThinkingSignatureRectifier: validated.enableThinkingSignatureRectifier,
       enableThinkingBudgetRectifier: validated.enableThinkingBudgetRectifier,
+      enableThinkingEffortConflictRectifier: validated.enableThinkingEffortConflictRectifier,
       enableGeminiFunctionIdRectifier: validated.enableGeminiFunctionIdRectifier,
       enableBillingHeaderRectifier: validated.enableBillingHeaderRectifier,
       enableResponseInputRectifier: validated.enableResponseInputRectifier,
+      allowNonConversationEndpointProviderFallback:
+        validated.allowNonConversationEndpointProviderFallback,
+      fakeStreamingWhitelist: validated.fakeStreamingWhitelist,
       enableCodexSessionIdCompletion: validated.enableCodexSessionIdCompletion,
       enableClaudeMetadataUserIdInjection: validated.enableClaudeMetadataUserIdInjection,
       enableResponseFixer: validated.enableResponseFixer,
@@ -94,6 +101,10 @@ export async function POST(req: Request) {
       quotaLeasePercentWeekly: validated.quotaLeasePercentWeekly,
       quotaLeasePercentMonthly: validated.quotaLeasePercentMonthly,
       quotaLeaseCapUsd: validated.quotaLeaseCapUsd,
+      publicStatusWindowHours: validated.publicStatusWindowHours,
+      publicStatusAggregationIntervalMinutes: validated.publicStatusAggregationIntervalMinutes,
+      ipExtractionConfig: validated.ipExtractionConfig,
+      ipGeoLookupEnabled: validated.ipGeoLookupEnabled,
     });
 
     logger.info("系统配置已更新", {
@@ -105,7 +116,7 @@ export async function POST(req: Request) {
       "@/app/v1/_lib/proxy/provider-selector-settings-cache"
     );
     invalidateProviderSelectorSystemSettingsCache();
-    if (validated.timezone !== undefined) {
+    if (validated.timezone !== undefined && validated.timezone !== before?.timezone) {
       await Promise.all([
         invalidateAllOverviewCaches(),
         invalidateAllStatisticsCaches(),

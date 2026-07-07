@@ -276,6 +276,7 @@ export function convertCptVariant(variant: CptPricingVariant): Record<string, un
     const price = parseDecimal(fileSearch.price);
     if (price !== null && price >= 0) {
       node.file_search_cost_per_1k_calls = roundPrecision(price);
+      hasBillableField = true;
     }
   }
 

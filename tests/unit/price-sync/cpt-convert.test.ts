@@ -248,6 +248,21 @@ describe("convertCptVariant", () => {
     expect(node?.file_search_cost_per_1k_calls).toBeUndefined();
   });
 
+  it("keeps variants whose only billable field is file_search", () => {
+    const node = convertCptVariant({
+      provider: "openai",
+      official: true,
+      source: "test",
+      charges: {
+        file_search: { unit: "per_k_calls", price: "3" },
+      },
+      tracks: [{ label: "standard", factor: "1", triggers: [] }],
+    });
+
+    expect(node).not.toBeNull();
+    expect(node?.file_search_cost_per_1k_calls).toBe(3);
+  });
+
   it("converts per_image and per_request charges", () => {
     const node = convertCptVariant({
       provider: "openai",
