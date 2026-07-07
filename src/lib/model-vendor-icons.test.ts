@@ -70,6 +70,7 @@ describe("getVendorIconComponent", () => {
   it("returns null for unknown slugs", () => {
     expect(getVendorIconComponent("definitely-unknown-vendor")).toBeNull();
     expect(getVendorIconComponent("")).toBeNull();
+    expect(getVendorIconComponent("constructor")).toBeNull();
   });
 });
 

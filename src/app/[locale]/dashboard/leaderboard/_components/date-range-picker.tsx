@@ -14,7 +14,7 @@ import {
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import { useTimeZone, useTranslations } from "next-intl";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DateRange } from "react-day-picker";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -102,17 +102,29 @@ export function DateRangePicker({ period, dateRange, onPeriodChange }: DateRange
   const t = useTranslations("dashboard.leaderboard");
   const timeZone = useTimeZone() ?? "UTC";
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const today = useMemo(() => formatDateInSystemTimeZone(new Date(), timeZone), [timeZone]);
+  const [clockTick, setClockTick] = useState(() => Date.now());
+
+  useEffect(() => {
+    const syncClock = () => setClockTick(Date.now());
+    syncClock();
+    const timer = window.setInterval(syncClock, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const today = useMemo(
+    () => formatDateInSystemTimeZone(new Date(clockTick), timeZone),
+    [clockTick, timeZone]
+  );
 
   const currentRange = useMemo(() => {
     if (period === "custom" && dateRange) {
       return dateRange;
     }
     if (period !== "custom" && QUICK_PERIODS.includes(period as QuickPeriod)) {
-      return getDateRangeForPeriod(period as QuickPeriod, timeZone);
+      return getDateRangeForPeriod(period as QuickPeriod, timeZone, new Date(clockTick));
     }
-    return getDateRangeForPeriod("daily", timeZone);
-  }, [period, dateRange, timeZone]);
+    return getDateRangeForPeriod("daily", timeZone, new Date(clockTick));
+  }, [period, dateRange, clockTick, timeZone]);
 
   const selectedRange: DateRange = useMemo(() => {
     return {

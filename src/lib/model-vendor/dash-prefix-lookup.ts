@@ -2,11 +2,11 @@
 export function resolveByDashPrefix<T>(slug: string, map: Record<string, T>): T | null {
   const key = slug.trim().toLowerCase();
   if (!key) return null;
-  if (map[key]) return map[key];
+  if (Object.hasOwn(map, key)) return map[key] ?? null;
   let probe = key;
   while (probe.includes("-")) {
     probe = probe.slice(0, probe.lastIndexOf("-"));
-    if (map[probe]) return map[probe];
+    if (Object.hasOwn(map, probe)) return map[probe] ?? null;
   }
   return null;
 }

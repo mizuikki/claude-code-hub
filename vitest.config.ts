@@ -98,7 +98,7 @@ export default defineConfig({
     // ==================== 并发配置 ====================
     maxConcurrency: 4, // 状态化测试较多，降低并发峰值避免 worker 启动阶段争抢 DB/Redis
     pool: "threads", // 使用线程池（推荐）
-    // 依据可用 CPU 自动调节，但上限保持 8，避免高核机器过度并行拖垮长尾测试。
+    // 依据可用 CPU 自动调节，但上限保持 4，避免高核机器过度并行拖垮长尾测试。
     // 允许通过环境变量覆盖：VITEST_MAX_WORKERS=8 或 VITEST_MAX_WORKERS=75%。
     maxWorkers: parseWorkerLimit(process.env.VITEST_MAX_WORKERS, defaultMaxWorkers()),
 

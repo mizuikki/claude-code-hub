@@ -102,7 +102,7 @@ function buildVirtualOption(modelName: string): ModelOption {
 
 /** 分组口径:云端 vendor 优先,旧数据回退 litellm_provider */
 function getModelGroupKey(model: AvailableModelCatalogItem): string | null {
-  return model.vendor ?? model.litellmProvider ?? null;
+  return model.vendor?.trim() || model.litellmProvider?.trim() || null;
 }
 
 export function ModelMultiSelect({

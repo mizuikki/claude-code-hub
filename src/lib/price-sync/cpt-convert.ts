@@ -222,12 +222,14 @@ export function convertCptVariant(variant: CptPricingVariant): Record<string, un
 
   const node: Record<string, unknown> = {};
   let hasBillableField = false;
+  const isUsdCharge = (charge?: CptCharge) =>
+    !(typeof charge?.currency === "string" && charge.currency && charge.currency !== "USD");
 
   const basePriceOf = (chargeKey: string): number | null => {
     const charge = charges[chargeKey];
     if (!charge) return null;
     // 与基础价循环同口径:非 USD 报价与内部计费不可比,负数价格拒绝
-    if (typeof charge.currency === "string" && charge.currency && charge.currency !== "USD") {
+    if (!isUsdCharge(charge)) {
       return null;
     }
     const price = parseDecimal(charge.price);
@@ -238,7 +240,7 @@ export function convertCptVariant(variant: CptPricingVariant): Record<string, un
   for (const [chargeKey, charge] of Object.entries(charges)) {
     if (!charge || typeof charge !== "object") continue;
     // 币种覆盖的报价(如 CNY)与内部 USD 计费不可比,跳过该维度
-    if (typeof charge.currency === "string" && charge.currency && charge.currency !== "USD") {
+    if (!isUsdCharge(charge)) {
       continue;
     }
     const target = chargeTarget(chargeKey, charge);
@@ -246,7 +248,8 @@ export function convertCptVariant(variant: CptPricingVariant): Record<string, un
     if (!target || price === null || price < 0) continue;
 
     const factor = defaultTrack ? trackFactorFor(defaultTrack, chargeKey) : 1;
-    const effective = price * (factor ?? 1);
+    if (factor === null || factor < 0) continue;
+    const effective = price * factor;
     const value =
       target.kind === "per_token" ? roundPrecision(effective / MILLION) : roundPrecision(effective);
     node[target.field] = value;
@@ -255,7 +258,7 @@ export function convertCptVariant(variant: CptPricingVariant): Record<string, un
 
   // web_search(per_k_calls)-> 每次查询成本,保持与旧格式 search_context_cost_per_query 兼容
   const webSearch = charges.web_search;
-  if (webSearch?.unit === "per_k_calls") {
+  if (webSearch?.unit === "per_k_calls" && isUsdCharge(webSearch)) {
     const price = parseDecimal(webSearch.price);
     if (price !== null && price >= 0) {
       const perQuery = roundPrecision(price / 1000);
@@ -269,7 +272,7 @@ export function convertCptVariant(variant: CptPricingVariant): Record<string, un
   }
 
   const fileSearch = charges.file_search_call ?? charges.file_search;
-  if (fileSearch?.unit === "per_k_calls") {
+  if (fileSearch?.unit === "per_k_calls" && isUsdCharge(fileSearch)) {
     const price = parseDecimal(fileSearch.price);
     if (price !== null && price >= 0) {
       node.file_search_cost_per_1k_calls = roundPrecision(price);

@@ -71,6 +71,7 @@ function click(element: Element) {
 
 describe("LanguageSwitcher", () => {
   let view: ReturnType<typeof render> | null = null;
+  let restoreSessionStorage: (() => void) | null = null;
 
   beforeEach(() => {
     window.sessionStorage.clear();
@@ -81,6 +82,8 @@ describe("LanguageSwitcher", () => {
   });
 
   afterEach(() => {
+    restoreSessionStorage?.();
+    restoreSessionStorage = null;
     view?.unmount();
     view = null;
   });
@@ -132,6 +135,12 @@ describe("LanguageSwitcher", () => {
 
   test("keeps the pending refresh after remount when sessionStorage is blocked", () => {
     const originalStorage = window.sessionStorage;
+    restoreSessionStorage = () => {
+      Object.defineProperty(window, "sessionStorage", {
+        configurable: true,
+        value: originalStorage,
+      });
+    };
     Object.defineProperty(window, "sessionStorage", {
       configurable: true,
       value: {
@@ -163,10 +172,8 @@ describe("LanguageSwitcher", () => {
 
     view.unmount();
     view = null;
-    Object.defineProperty(window, "sessionStorage", {
-      configurable: true,
-      value: originalStorage,
-    });
+    restoreSessionStorage();
+    restoreSessionStorage = null;
 
     testState.currentLocale = "en";
     view = render(<LanguageSwitcher />);

@@ -43,7 +43,13 @@ export function buildRedisQueueOptions(
       };
     }
   } catch (e) {
-    logger.error(`${logPrefix} Failed to parse REDIS_URL, connection will fail:`, e);
+    logger.error(`${logPrefix} Failed to parse REDIS_URL, connection will fail:`, {
+      code:
+        typeof e === "object" && e !== null && "code" in e && typeof e.code === "string"
+          ? e.code
+          : undefined,
+      message: e instanceof Error ? e.message : String(e),
+    });
     // 如果 URL 格式错误，则抛出异常停止启动
     throw new Error("Invalid REDIS_URL format");
   }

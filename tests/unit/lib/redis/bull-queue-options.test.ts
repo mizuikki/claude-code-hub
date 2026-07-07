@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { logger } from "@/lib/logger";
 
 /**
  * Shared REDIS_URL parsing for the Bull-backed queues (cleanup / notification).
@@ -72,5 +73,11 @@ describe("buildRedisQueueOptions", () => {
     const { buildRedisQueueOptions } = await import("@/lib/redis/bull-queue-options");
 
     expect(() => buildRedisQueueOptions("not a url", "[Test]")).toThrow("Invalid REDIS_URL format");
+    expect(logger.error).toHaveBeenCalledWith(
+      "[Test] Failed to parse REDIS_URL, connection will fail:",
+      expect.objectContaining({
+        message: expect.any(String),
+      })
+    );
   });
 });

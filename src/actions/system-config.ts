@@ -162,7 +162,7 @@ export async function saveSystemSettings(formData: {
     );
     invalidateProviderSelectorSystemSettingsCache();
 
-    if (validated.timezone !== undefined) {
+    if (validated.timezone !== undefined && validated.timezone !== before?.timezone) {
       await Promise.all([
         invalidateAllOverviewCaches(),
         invalidateAllStatisticsCaches(),

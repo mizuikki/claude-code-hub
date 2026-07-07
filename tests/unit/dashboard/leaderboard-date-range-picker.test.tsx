@@ -125,4 +125,20 @@ describe("Leaderboard DateRangePicker", () => {
 
     expectDisplayedRange(container!, "2026-05-31", "2026-06-09");
   });
+
+  it("refreshes quick-period ranges after midnight without a remount", async () => {
+    vi.setSystemTime(new Date("2026-06-01T23:59:00Z"));
+
+    await act(async () => {
+      root!.render(<TestHarness initialPeriod="daily" />);
+    });
+
+    expect(container!.textContent).toContain("2026-06-01");
+
+    await act(async () => {
+      vi.advanceTimersByTime(61_000);
+    });
+
+    expect(container!.textContent).toContain("2026-06-02");
+  });
 });

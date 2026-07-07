@@ -219,6 +219,35 @@ describe("convertCptVariant", () => {
     expect(node?.input_cost_per_token).toBeCloseTo(0.000005, 12);
   });
 
+  it("skips invalid default-track factors instead of falling back to 1", () => {
+    const node = convertCptVariant({
+      provider: "openai",
+      official: false,
+      source: "test",
+      charges: { prompt: { unit: "per_M_tokens", price: "10" } },
+      tracks: [{ label: "standard", factor: "-1", triggers: [] }],
+    });
+    expect(node).toBeNull();
+  });
+
+  it("skips non-USD web_search and file_search charges", () => {
+    const node = convertCptVariant({
+      provider: "openai",
+      official: true,
+      source: "test",
+      charges: {
+        prompt: { unit: "per_M_tokens", price: "2" },
+        web_search: { unit: "per_k_calls", price: "10", currency: "CNY" },
+        file_search: { unit: "per_k_calls", price: "3", currency: "EUR" },
+      },
+      tracks: [{ label: "standard", factor: "1", triggers: [] }],
+    });
+
+    expect(node?.input_cost_per_token).toBeCloseTo(0.000002, 12);
+    expect(node?.search_context_cost_per_query).toBeUndefined();
+    expect(node?.file_search_cost_per_1k_calls).toBeUndefined();
+  });
+
   it("converts per_image and per_request charges", () => {
     const node = convertCptVariant({
       provider: "openai",

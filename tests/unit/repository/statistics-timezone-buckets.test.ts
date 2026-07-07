@@ -59,4 +59,28 @@ describe("statistics timezone buckets", () => {
     expect(rows[0].api_calls).toBe(4);
     expect(rows[0].total_cost).toBe("2.50");
   });
+
+  it("normalizes Date buckets using their local wall-clock components", async () => {
+    vi.mocked(db.execute)
+      .mockResolvedValueOnce([{ id: 1, name: "alice" }])
+      .mockResolvedValueOnce([{ bucket: new Date(2026, 4, 30, 0, 0, 0) }])
+      .mockResolvedValueOnce([
+        {
+          user_id: 1,
+          user_name: "alice",
+          bucket: new Date(2026, 4, 30, 0, 0, 0),
+          api_calls: "5",
+          total_cost: "3.75",
+        },
+      ]);
+
+    const { getUserStatisticsFromDB } = await import("@/repository/statistics");
+
+    const rows = await getUserStatisticsFromDB("7days", "Asia/Shanghai");
+
+    expect(rows).toHaveLength(1);
+    expect(new Date(rows[0].date).toISOString()).toBe("2026-05-29T16:00:00.000Z");
+    expect(rows[0].api_calls).toBe(5);
+    expect(rows[0].total_cost).toBe("3.75");
+  });
 });
