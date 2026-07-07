@@ -269,6 +269,7 @@ export interface MyUsageLogsFilters {
   endTime?: number;
   sessionId?: string;
   model?: string;
+  actualResponseModelMismatch?: boolean;
   statusCode?: number;
   excludeStatusCode200?: boolean;
   endpoint?: string;
@@ -617,6 +618,7 @@ export interface MyUsageLogsBatchFilters {
   /** Session ID（精确匹配；空字符串/空白视为不筛选） */
   sessionId?: string;
   model?: string;
+  actualResponseModelMismatch?: boolean;
   statusCode?: number;
   excludeStatusCode200?: boolean;
   endpoint?: string;
@@ -687,6 +689,7 @@ export async function getMyUsageLogs(
       startTime: dateRange.startTime,
       endTime: dateRange.endTime,
       model: filters.model,
+      actualResponseModelMismatch: filters.actualResponseModelMismatch,
       statusCode: filters.statusCode,
       excludeStatusCode200: filters.excludeStatusCode200,
       endpoint: filters.endpoint,
@@ -733,6 +736,7 @@ export async function getMyUsageLogsBatch(
       startTime: dateRange.startTime,
       endTime: dateRange.endTime,
       model: filters.model,
+      actualResponseModelMismatch: filters.actualResponseModelMismatch,
       statusCode: filters.statusCode,
       excludeStatusCode200: filters.excludeStatusCode200,
       endpoint: filters.endpoint,
@@ -782,6 +786,7 @@ export async function getMyUsageLogsBatchFull(
     const result = await findReadonlyUsageLogsBatchForKey({
       sessionId: params.sessionId,
       model: params.model,
+      actualResponseModelMismatch: params.actualResponseModelMismatch,
       statusCode: params.statusCode,
       excludeStatusCode200: params.excludeStatusCode200,
       endpoint: params.endpoint,

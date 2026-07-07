@@ -3,7 +3,7 @@
 import { addDays, differenceInCalendarDays, format } from "date-fns";
 import { CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DateRange } from "react-day-picker";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -39,20 +39,22 @@ function parseDate(dateStr: string): Date {
 
 function getDateRangeForPeriod(
   period: QuickPeriod,
-  serverTimeZone?: string
+  serverTimeZone?: string,
+  now?: Date
 ): { startDate: string; endDate: string } {
-  return getQuickDateRange(period, serverTimeZone);
+  return getQuickDateRange(period, serverTimeZone, now);
 }
 
 function detectQuickPeriod(
   startDate?: string,
   endDate?: string,
-  serverTimeZone?: string
+  serverTimeZone?: string,
+  now?: Date
 ): PickerQuickPeriod | null {
   if (!startDate || !endDate) return null;
 
   for (const period of QUICK_PERIODS) {
-    const range = getDateRangeForPeriod(period, serverTimeZone);
+    const range = getDateRangeForPeriod(period, serverTimeZone, now);
     if (range.startDate === startDate && range.endDate === endDate) {
       return period;
     }
@@ -85,12 +87,23 @@ export function LogsDateRangePicker({
   const t = useTranslations("dashboard");
   const tCommon = useTranslations("common");
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [clockTick, setClockTick] = useState(() => Date.now());
+
+  useEffect(() => {
+    const syncClock = () => setClockTick(Date.now());
+    syncClock();
+    const timer = window.setInterval(syncClock, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const hasDateRange = Boolean(startDate && endDate);
+  const today = useMemo(() => {
+    return getDateRangeForPeriod("today", serverTimeZone, new Date(clockTick)).endDate;
+  }, [clockTick, serverTimeZone]);
 
   const activeQuickPeriod = useMemo(() => {
-    return detectQuickPeriod(startDate, endDate, serverTimeZone);
-  }, [startDate, endDate, serverTimeZone]);
+    return detectQuickPeriod(startDate, endDate, serverTimeZone, new Date(clockTick));
+  }, [startDate, endDate, clockTick, serverTimeZone]);
 
   const selectedRange: DateRange | undefined = useMemo(() => {
     if (!startDate || !endDate) return undefined;
@@ -212,7 +225,7 @@ export function LogsDateRangePicker({
               selected={selectedRange}
               onSelect={handleDateRangeSelect}
               numberOfMonths={2}
-              disabled={{ after: new Date() }}
+              disabled={{ after: parseDate(today) }}
             />
             {hasDateRange && (
               <div className="border-t p-2">
@@ -228,7 +241,7 @@ export function LogsDateRangePicker({
           variant="outline"
           size="icon-sm"
           onClick={() => handleNavigate("next")}
-          disabled={!hasDateRange || (endDate !== undefined && endDate >= formatDate(new Date()))}
+          disabled={!hasDateRange || (endDate !== undefined && endDate >= today)}
           title={t("leaderboard.dateRange.nextPeriod")}
         >
           <ChevronRight className="h-4 w-4" />

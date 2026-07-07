@@ -71,6 +71,7 @@ function click(element: Element) {
 
 describe("LanguageSwitcher", () => {
   let view: ReturnType<typeof render> | null = null;
+  let restoreSessionStorage: (() => void) | null = null;
 
   beforeEach(() => {
     window.sessionStorage.clear();
@@ -81,6 +82,8 @@ describe("LanguageSwitcher", () => {
   });
 
   afterEach(() => {
+    restoreSessionStorage?.();
+    restoreSessionStorage = null;
     view?.unmount();
     view = null;
   });
@@ -131,8 +134,23 @@ describe("LanguageSwitcher", () => {
   });
 
   test("keeps the pending refresh after remount when sessionStorage is blocked", () => {
-    const setItemSpy = vi.spyOn(window.sessionStorage, "setItem").mockImplementation(() => {
-      throw new Error("blocked storage");
+    const originalStorage = window.sessionStorage;
+    restoreSessionStorage = () => {
+      Object.defineProperty(window, "sessionStorage", {
+        configurable: true,
+        value: originalStorage,
+      });
+    };
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      value: {
+        getItem: originalStorage.getItem.bind(originalStorage),
+        setItem: () => {
+          throw new Error("blocked storage");
+        },
+        removeItem: originalStorage.removeItem.bind(originalStorage),
+        clear: originalStorage.clear.bind(originalStorage),
+      } satisfies Pick<Storage, "getItem" | "setItem" | "removeItem" | "clear">,
     });
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -154,7 +172,8 @@ describe("LanguageSwitcher", () => {
 
     view.unmount();
     view = null;
-    setItemSpy.mockRestore();
+    restoreSessionStorage();
+    restoreSessionStorage = null;
 
     testState.currentLocale = "en";
     view = render(<LanguageSwitcher />);
