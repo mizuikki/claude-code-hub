@@ -8,7 +8,7 @@ const isIntegrationFileFilterRequested = process.argv.some((arg) =>
 
 function defaultMaxWorkers(): number {
   const workerBudget = Math.floor(availableParallelism() * 0.75);
-  return Math.min(8, Math.max(2, workerBudget));
+  return Math.min(4, Math.max(2, workerBudget));
 }
 
 export default defineConfig({
@@ -90,13 +90,13 @@ export default defineConfig({
     },
 
     // ==================== 超时配置 ====================
-    testTimeout: 10000, // 单个测试超时 10 秒
-    hookTimeout: 10000, // 钩子函数超时 10 秒
+    testTimeout: 20000, // 单个测试默认放宽到 20 秒，降低状态化测试的长尾误判
+    hookTimeout: 20000, // setup/teardown 需要访问 DB/Redis，避免高并发下 10 秒误超时
     teardownTimeout: parsePositiveInt(process.env.VITEST_TEARDOWN_TIMEOUT_MS, 15000),
     slowTestThreshold: parsePositiveInt(process.env.VITEST_SLOW_TEST_THRESHOLD_MS, 1000),
 
     // ==================== 并发配置 ====================
-    maxConcurrency: 5, // 最大并发测试数
+    maxConcurrency: 4, // 状态化测试较多，降低并发峰值避免 worker 启动阶段争抢 DB/Redis
     pool: "threads", // 使用线程池（推荐）
     // 依据可用 CPU 自动调节，但上限保持 8，避免高核机器过度并行拖垮长尾测试。
     // 允许通过环境变量覆盖：VITEST_MAX_WORKERS=8 或 VITEST_MAX_WORKERS=75%。
