@@ -8,6 +8,8 @@ const invalidateProviderSelectorSystemSettingsCacheMock = vi.hoisted(() => vi.fn
 const invalidateAllOverviewCachesMock = vi.hoisted(() => vi.fn());
 const invalidateAllStatisticsCachesMock = vi.hoisted(() => vi.fn());
 const invalidateAllLeaderboardCachesMock = vi.hoisted(() => vi.fn());
+const publishCurrentPublicStatusConfigProjectionMock = vi.hoisted(() => vi.fn());
+const schedulePublicStatusRebuildMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth", () => ({
   getSession: getSessionMock,
@@ -44,6 +46,14 @@ vi.mock("@/app/v1/_lib/proxy/provider-selector-settings-cache", () => ({
   invalidateProviderSelectorSystemSettingsCache: invalidateProviderSelectorSystemSettingsCacheMock,
 }));
 
+vi.mock("@/lib/public-status/config-publisher", () => ({
+  publishCurrentPublicStatusConfigProjection: publishCurrentPublicStatusConfigProjectionMock,
+}));
+
+vi.mock("@/lib/public-status/rebuild-hints", () => ({
+  schedulePublicStatusRebuild: schedulePublicStatusRebuildMock,
+}));
+
 describe("POST /api/admin/system-config", () => {
   let POST: typeof import("@/app/api/admin/system-config/route").POST;
 
@@ -53,6 +63,8 @@ describe("POST /api/admin/system-config", () => {
     getSessionMock.mockResolvedValue({ user: { id: 1, role: "admin" } });
     getSystemSettingsMock.mockResolvedValue({ timezone: "UTC" });
     updateSystemSettingsMock.mockImplementation(async (input) => input);
+    publishCurrentPublicStatusConfigProjectionMock.mockResolvedValue({ written: true });
+    schedulePublicStatusRebuildMock.mockResolvedValue(undefined);
 
     ({ POST } = await import("@/app/api/admin/system-config/route"));
   });
@@ -105,5 +117,28 @@ describe("POST /api/admin/system-config", () => {
     expect(invalidateAllOverviewCachesMock).not.toHaveBeenCalled();
     expect(invalidateAllStatisticsCachesMock).not.toHaveBeenCalled();
     expect(invalidateAllLeaderboardCachesMock).not.toHaveBeenCalled();
+  });
+
+  it("publishes and rebuilds public status after changing its aggregation settings", async () => {
+    const response = await POST(
+      new Request("http://localhost/api/admin/system-config", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          publicStatusWindowHours: 72,
+          publicStatusAggregationIntervalMinutes: 15,
+        }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(publishCurrentPublicStatusConfigProjectionMock).toHaveBeenCalledWith({
+      reason: "admin-system-config-api",
+    });
+    expect(schedulePublicStatusRebuildMock).toHaveBeenCalledWith({
+      intervalMinutes: 15,
+      rangeHours: 72,
+      reason: "system-settings-updated",
+    });
   });
 });

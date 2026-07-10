@@ -2,6 +2,8 @@ import { z } from "zod";
 import { getSession } from "@/lib/auth";
 import { invalidateSystemSettingsCache } from "@/lib/config";
 import { logger } from "@/lib/logger";
+import { publishCurrentPublicStatusConfigProjection } from "@/lib/public-status/config-publisher";
+import { schedulePublicStatusRebuild } from "@/lib/public-status/rebuild-hints";
 import {
   invalidateAllLeaderboardCaches,
   invalidateAllOverviewCaches,
@@ -126,6 +128,39 @@ export async function POST(req: Request) {
           error,
         });
       });
+    }
+
+    const shouldRepublishPublicStatusProjection =
+      validated.siteTitle !== undefined ||
+      validated.timezone !== undefined ||
+      validated.publicStatusWindowHours !== undefined ||
+      validated.publicStatusAggregationIntervalMinutes !== undefined;
+
+    if (shouldRepublishPublicStatusProjection) {
+      try {
+        const publishResult = await publishCurrentPublicStatusConfigProjection({
+          reason: "admin-system-config-api",
+        });
+
+        if (!publishResult.written) {
+          logger.warn(
+            "[SystemSettings] Saved DB truth but failed to publish public-status Redis projection"
+          );
+        } else {
+          await schedulePublicStatusRebuild({
+            intervalMinutes:
+              validated.publicStatusAggregationIntervalMinutes ??
+              updated.publicStatusAggregationIntervalMinutes,
+            rangeHours: validated.publicStatusWindowHours ?? updated.publicStatusWindowHours,
+            reason: "system-settings-updated",
+          });
+        }
+      } catch (error) {
+        logger.warn(
+          "[SystemSettings] Saved DB truth but failed to publish public-status Redis projection",
+          error
+        );
+      }
     }
 
     return Response.json(updated);
