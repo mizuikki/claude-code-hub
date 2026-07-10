@@ -125,7 +125,7 @@
     "zod": "^4"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2",
+    "@biomejs/biome": "2.5.1",
     "@tailwindcss/postcss": "^4.2.0",
     "@types/geojson": "^7946.0.16",
     "@types/ioredis": "^5",
