@@ -205,6 +205,11 @@
       }
     },
     "codexOverrides": {
+      "compactionV2": {
+        "help": "原生 v2 會直接透傳標準壓縮事件且不執行輸出修正；舊協議適配會轉換帶密文的 compaction_summary；不支援的提供商不會參與壓縮 v2 路由。",
+        "label": "Responses 壓縮 v2 能力",
+        "options": { "native_v2": "原生 v2", "legacy_adapter": "舊協議適配", "unsupported": "不支援" }
+      },
       "title": "Codex 參數覆寫",
       "desc": "在供應商級別覆寫 Codex (Responses API) 請求參數",
       "parallelToolCalls": {

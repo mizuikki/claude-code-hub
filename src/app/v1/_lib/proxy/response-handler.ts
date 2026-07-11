@@ -1379,7 +1379,12 @@ export class ProxyResponseHandler {
     }
 
     let fixedResponse = response;
-    if (!session.getEndpointPolicy().bypassResponseRectifier) {
+    const isCompactionV2 = session.isResponsesCompactionV2?.() ?? false;
+    const compactionCapability = session.provider?.codexCompactionV2Capability ?? "unsupported";
+    if (
+      !session.getEndpointPolicy().bypassResponseRectifier &&
+      !(isCompactionV2 && compactionCapability === "native_v2")
+    ) {
       try {
         // raw passthrough 端点跳过 ResponseFixer，也跳过其中的 Responses 输出归一化。
         fixedResponse = await ResponseFixer.process(session, response);
@@ -1395,6 +1400,11 @@ export class ProxyResponseHandler {
         );
         fixedResponse = response;
       }
+    }
+
+    if (isCompactionV2 && fixedResponse.body) {
+      const { processResponsesCompactionV2Response } = await import("./responses-compaction-v2");
+      fixedResponse = processResponsesCompactionV2Response(fixedResponse, compactionCapability);
     }
 
     const contentType = fixedResponse.headers.get("content-type") || "";

@@ -30,6 +30,7 @@ import {
   parseOpenAIImageMultipartMetadata,
 } from "./openai-image-compat";
 import { decodeRequestBody } from "./request-body-codec";
+import { isResponsesCompactionV2Request } from "./responses-compaction-v2";
 
 /**
  * Classification of an auth failure, used to decide whether to record the
@@ -129,6 +130,36 @@ export class ProxySession {
   // 请求格式追踪：记录原始请求格式和供应商类型
   originalFormat: ClientFormat = "claude";
   providerType: ProviderType | null = null;
+  private requiredCompactionProviderId: number | null = null;
+
+  isResponsesCompactionV2(): boolean {
+    return isResponsesCompactionV2Request(this.requestUrl.pathname, this.request.message);
+  }
+
+  hasProviderBoundCompactionState(): boolean {
+    if (
+      this.requestUrl.pathname !== "/v1/responses" ||
+      !Array.isArray(this.request.message.input)
+    ) {
+      return false;
+    }
+    return this.request.message.input.some(
+      (item) =>
+        typeof item === "object" &&
+        item !== null &&
+        !Array.isArray(item) &&
+        (item as Record<string, unknown>).type === "compaction" &&
+        typeof (item as Record<string, unknown>).encrypted_content === "string"
+    );
+  }
+
+  setRequiredCompactionProviderId(providerId: number): void {
+    this.requiredCompactionProviderId = providerId;
+  }
+
+  getRequiredCompactionProviderId(): number | null {
+    return this.requiredCompactionProviderId;
+  }
 
   private readonly endpointPolicy: EndpointPolicy;
 

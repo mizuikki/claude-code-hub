@@ -10,6 +10,7 @@ export const HIDDEN_PROVIDER_TYPES = new Set(HIDDEN_PROVIDER_TYPE_VALUES);
 
 const NullableStringSchema = z.string().nullable();
 const CodexImageGenerationPreferenceSchema = z.enum(CODEX_IMAGE_GENERATION_PREFERENCE_VALUES);
+const CodexCompactionV2CapabilitySchema = z.enum(["native_v2", "legacy_adapter", "unsupported"]);
 
 export const ProviderListQuerySchema = z.object({
   q: z.string().trim().optional().describe("Case-insensitive provider search text."),
@@ -119,6 +120,9 @@ export const ProviderSummarySchema = z
       .nullable()
       .describe("DeepSeek reasoning effort."),
     codexServiceTierPreference: z.string().nullable().describe("Codex service tier preference."),
+    codexCompactionV2Capability: CodexCompactionV2CapabilitySchema.describe(
+      "Responses compaction v2 capability."
+    ),
     anthropicMaxTokensPreference: z
       .string()
       .nullable()
@@ -225,6 +229,9 @@ const ProviderBatchUpdateFieldsSchema = z
       .nullable()
       .optional()
       .describe("Codex service tier preference."),
+    codex_compaction_v2_capability: CodexCompactionV2CapabilitySchema.optional().describe(
+      "Responses compaction v2 capability."
+    ),
     anthropic_thinking_budget_preference: z
       .string()
       .nullable()
@@ -492,6 +499,9 @@ export const ProviderCreateSchema = z
       "Codex image generation tool preference."
     ),
     codex_service_tier_preference: z.string().optional().describe("Codex service tier preference."),
+    codex_compaction_v2_capability: CodexCompactionV2CapabilitySchema.optional().describe(
+      "Responses compaction v2 capability."
+    ),
     deepseek_reasoning_effort_preference: z
       .enum(["inherit", "high", "max"])
       .optional()

@@ -131,6 +131,27 @@ describe("Provider schemas - priority/weight/costMultiplier 规则对齐", () =>
         }).success
       ).toBe(true);
     });
+
+    test("Codex compaction v2 capability accepts supported values and defaults to legacy", () => {
+      for (const capability of ["native_v2", "legacy_adapter", "unsupported"] as const) {
+        expect(
+          CreateProviderSchema.parse({
+            ...base,
+            codex_compaction_v2_capability: capability,
+          }).codex_compaction_v2_capability
+        ).toBe(capability);
+      }
+
+      expect(CreateProviderSchema.parse(base).codex_compaction_v2_capability).toBe(
+        "legacy_adapter"
+      );
+      expect(
+        CreateProviderSchema.safeParse({
+          ...base,
+          codex_compaction_v2_capability: "invalid",
+        }).success
+      ).toBe(false);
+    });
   });
 
   describe("client restrictions null normalization", () => {

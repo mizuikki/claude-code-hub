@@ -161,6 +161,11 @@
       }
     },
     "codexOverrides": {
+      "compactionV2": {
+        "help": "原生 v2 会直接透传标准压缩事件且不执行输出修正；旧协议适配会转换带密文的 compaction_summary；不支持的提供商不会参与压缩 v2 路由。",
+        "label": "Responses 压缩 v2 能力",
+        "options": { "native_v2": "原生 v2", "legacy_adapter": "旧协议适配", "unsupported": "不支持" }
+      },
       "title": "Codex 参数覆写",
       "desc": "在供应商级别覆写 Codex (Responses API) 请求参数",
       "reasoningEffort": {

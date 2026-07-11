@@ -3780,6 +3780,16 @@ export class ProxyForwarder {
     session: ProxySession,
     excludeProviderIds: number[] // 改为数组，排除所有失败的供应商
   ): Promise<typeof session.provider | null> {
+    if (session.hasProviderBoundCompactionState()) {
+      logger.warn(
+        "ProxyForwarder: Refusing provider failover for provider-bound compaction state",
+        {
+          providerId: session.provider?.id,
+          sessionId: session.sessionId,
+        }
+      );
+      return null;
+    }
     // 使用公开的选择方法，传入排除列表
     const alternativeProvider = await ProxyProviderResolver.pickRandomProviderWithExclusion(
       session,

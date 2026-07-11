@@ -1,6 +1,6 @@
 {
-  "id": "b9fee462-06b3-4bc1-825c-b248c7223eda",
-  "prevId": "b8ccfc7f-db8c-4ca5-8a7f-d04b6e1c2d5b",
+  "id": "9def6964-338c-4c6d-b6b1-75723de6b1fa",
+  "prevId": "b9fee462-06b3-4bc1-825c-b248c7223eda",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2849,6 +2849,13 @@
           "type": "varchar(20)",
           "primaryKey": false,
           "notNull": false
+        },
+        "codex_compaction_v2_capability": {
+          "name": "codex_compaction_v2_capability",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'legacy_adapter'"
         },
         "deepseek_reasoning_effort_preference": {
           "name": "deepseek_reasoning_effort_preference",
