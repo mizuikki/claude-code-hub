@@ -205,6 +205,10 @@
       }
     },
     "codexOverrides": {
+      "compactionV2": {
+        "label": "Responses compaction v2 機能",
+        "options": { "native_v2": "ネイティブ v2", "legacy_adapter": "レガシーアダプター", "unsupported": "未対応" }
+      },
       "title": "Codex パラメータオーバーライド",
       "desc": "プロバイダーレベルで Codex (Responses API) リクエストパラメータをオーバーライド",
       "parallelToolCalls": {

@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { CUSTOM_HEADERS_PLACEHOLDER } from "@/lib/custom-headers";
 import type {
+  CodexCompactionV2Capability,
   CodexImageGenerationPreference,
   CodexParallelToolCallsPreference,
   CodexReasoningEffortPreference,
@@ -394,6 +395,30 @@ export function OptionsSection({ subSectionRefs }: OptionsSectionProps) {
                       </p>
                     </TooltipContent>
                   </Tooltip>
+                </SmartInputWrapper>
+
+                <SmartInputWrapper label={t("sections.routing.codexOverrides.compactionV2.label")}>
+                  <Select
+                    value={state.routing.codexCompactionV2Capability}
+                    onValueChange={(value) =>
+                      dispatch({
+                        type: "SET_CODEX_COMPACTION_V2_CAPABILITY",
+                        payload: value as CodexCompactionV2Capability,
+                      })
+                    }
+                    disabled={state.ui.isPending}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {["native_v2", "legacy_adapter", "unsupported"].map((value) => (
+                        <SelectItem key={value} value={value}>
+                          {t(`sections.routing.codexOverrides.compactionV2.options.${value}`)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </SmartInputWrapper>
               </div>
             </SectionCard>

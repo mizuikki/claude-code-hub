@@ -91,6 +91,7 @@ const ACTION_TO_FIELD_PATH: Partial<Record<ProviderFormActionWith5hResetMode["ty
   SET_CODEX_PARALLEL_TOOL_CALLS: "routing.codexParallelToolCallsPreference",
   SET_CODEX_IMAGE_GENERATION: "routing.codexImageGenerationPreference",
   SET_CODEX_SERVICE_TIER: "routing.codexServiceTierPreference",
+  SET_CODEX_COMPACTION_V2_CAPABILITY: "routing.codexCompactionV2Capability",
   SET_ANTHROPIC_MAX_TOKENS: "routing.anthropicMaxTokensPreference",
   SET_ANTHROPIC_THINKING_BUDGET: "routing.anthropicThinkingBudgetPreference",
   SET_ADAPTIVE_THINKING_ENABLED: "routing.anthropicAdaptiveThinking",
@@ -220,6 +221,7 @@ export function createInitialState(
           analysis.routing.codexServiceTierPreference.status === "uniform"
             ? analysis.routing.codexServiceTierPreference.value
             : "inherit",
+        codexCompactionV2Capability: "legacy_adapter",
         anthropicMaxTokensPreference:
           analysis.routing.anthropicMaxTokensPreference.status === "uniform"
             ? analysis.routing.anthropicMaxTokensPreference.value
@@ -372,6 +374,7 @@ export function createInitialState(
         codexParallelToolCallsPreference: "inherit",
         codexImageGenerationPreference: "inherit",
         codexServiceTierPreference: "inherit",
+        codexCompactionV2Capability: "legacy_adapter",
         anthropicMaxTokensPreference: "inherit",
         anthropicThinkingBudgetPreference: "inherit",
         anthropicAdaptiveThinking: null,
@@ -452,6 +455,7 @@ export function createInitialState(
         sourceProvider?.codexParallelToolCallsPreference ?? "inherit",
       codexImageGenerationPreference: sourceProvider?.codexImageGenerationPreference ?? "inherit",
       codexServiceTierPreference: sourceProvider?.codexServiceTierPreference ?? "inherit",
+      codexCompactionV2Capability: sourceProvider?.codexCompactionV2Capability ?? "legacy_adapter",
       anthropicMaxTokensPreference: sourceProvider?.anthropicMaxTokensPreference ?? "inherit",
       anthropicThinkingBudgetPreference:
         sourceProvider?.anthropicThinkingBudgetPreference ?? "inherit",
@@ -593,6 +597,11 @@ export function providerFormReducer(
       return {
         ...state,
         routing: { ...state.routing, codexServiceTierPreference: action.payload },
+      };
+    case "SET_CODEX_COMPACTION_V2_CAPABILITY":
+      return {
+        ...state,
+        routing: { ...state.routing, codexCompactionV2Capability: action.payload },
       };
     case "SET_ANTHROPIC_MAX_TOKENS":
       return {

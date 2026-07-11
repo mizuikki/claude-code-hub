@@ -103,6 +103,7 @@ export function toProvider(dbProvider: any): Provider {
     costMultiplier: dbProvider?.costMultiplier ? parseFloat(dbProvider.costMultiplier) : 1.0,
     groupTag: dbProvider?.groupTag ?? null,
     providerType: dbProvider?.providerType ?? "claude",
+    codexCompactionV2Capability: dbProvider?.codexCompactionV2Capability ?? "legacy_adapter",
     preserveClientIp: dbProvider?.preserveClientIp ?? false,
     disableSessionReuse: dbProvider?.disableSessionReuse ?? false,
     modelRedirects: normalizeProviderModelRedirectRules(dbProvider?.modelRedirects),

@@ -205,6 +205,10 @@
       }
     },
     "codexOverrides": {
+      "compactionV2": {
+        "label": "Responses 壓縮 v2 能力",
+        "options": { "native_v2": "原生 v2", "legacy_adapter": "舊協議適配", "unsupported": "不支援" }
+      },
       "title": "Codex 參數覆寫",
       "desc": "在供應商級別覆寫 Codex (Responses API) 請求參數",
       "parallelToolCalls": {

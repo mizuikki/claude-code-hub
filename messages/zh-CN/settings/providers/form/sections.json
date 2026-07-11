@@ -161,6 +161,10 @@
       }
     },
     "codexOverrides": {
+      "compactionV2": {
+        "label": "Responses 压缩 v2 能力",
+        "options": { "native_v2": "原生 v2", "legacy_adapter": "旧协议适配", "unsupported": "不支持" }
+      },
       "title": "Codex 参数覆写",
       "desc": "在供应商级别覆写 Codex (Responses API) 请求参数",
       "reasoningEffort": {

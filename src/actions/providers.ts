@@ -90,6 +90,7 @@ import type {
   AnthropicAdaptiveThinkingConfig,
   AnthropicMaxTokensPreference,
   AnthropicThinkingBudgetPreference,
+  CodexCompactionV2Capability,
   CodexImageGenerationPreference,
   CodexParallelToolCallsPreference,
   CodexReasoningEffortPreference,
@@ -374,6 +375,7 @@ export async function getProviders(): Promise<ProviderDisplay[]> {
         codexParallelToolCallsPreference: provider.codexParallelToolCallsPreference,
         codexImageGenerationPreference: provider.codexImageGenerationPreference,
         codexServiceTierPreference: provider.codexServiceTierPreference ?? null,
+        codexCompactionV2Capability: provider.codexCompactionV2Capability,
         anthropicMaxTokensPreference: provider.anthropicMaxTokensPreference,
         anthropicThinkingBudgetPreference: provider.anthropicThinkingBudgetPreference,
         anthropicAdaptiveThinking: provider.anthropicAdaptiveThinking,
@@ -560,6 +562,7 @@ export async function addProvider(data: {
   codex_parallel_tool_calls_preference?: CodexParallelToolCallsPreference | null;
   codex_image_generation_preference?: CodexImageGenerationPreference | null;
   codex_service_tier_preference?: CodexServiceTierPreference | null;
+  codex_compaction_v2_capability?: CodexCompactionV2Capability | null;
   deepseek_reasoning_effort_preference?: DeepSeekReasoningEffortPreference | null;
   anthropic_max_tokens_preference?: AnthropicMaxTokensPreference | null;
   anthropic_thinking_budget_preference?: AnthropicThinkingBudgetPreference | null;
@@ -659,6 +662,7 @@ export async function addProvider(data: {
         validated.codex_parallel_tool_calls_preference ?? "inherit",
       codex_image_generation_preference: validated.codex_image_generation_preference,
       codex_service_tier_preference: validated.codex_service_tier_preference ?? "inherit",
+      codex_compaction_v2_capability: validated.codex_compaction_v2_capability ?? "legacy_adapter",
       deepseek_reasoning_effort_preference:
         validated.deepseek_reasoning_effort_preference ?? "inherit",
       website_url: validated.website_url ?? null,
@@ -780,6 +784,7 @@ export async function editProvider(
     codex_parallel_tool_calls_preference?: CodexParallelToolCallsPreference | null;
     codex_image_generation_preference?: CodexImageGenerationPreference | null;
     codex_service_tier_preference?: CodexServiceTierPreference | null;
+    codex_compaction_v2_capability?: CodexCompactionV2Capability | null;
     anthropic_max_tokens_preference?: AnthropicMaxTokensPreference | null;
     anthropic_thinking_budget_preference?: AnthropicThinkingBudgetPreference | null;
     anthropic_adaptive_thinking?: AnthropicAdaptiveThinkingConfig | null;

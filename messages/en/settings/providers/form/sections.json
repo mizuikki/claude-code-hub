@@ -205,6 +205,10 @@
       }
     },
     "codexOverrides": {
+      "compactionV2": {
+        "label": "Responses compaction v2 capability",
+        "options": { "native_v2": "Native v2", "legacy_adapter": "Legacy adapter", "unsupported": "Unsupported" }
+      },
       "title": "Codex Parameter Overrides",
       "desc": "Override Codex (Responses API) request parameters at the provider level",
       "parallelToolCalls": {

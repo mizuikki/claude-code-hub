@@ -130,6 +130,38 @@ export class ProxySession {
   originalFormat: ClientFormat = "claude";
   providerType: ProviderType | null = null;
 
+  isResponsesCompactionV2(): boolean {
+    const input = this.request.message.input;
+    return (
+      this.requestUrl.pathname === "/v1/responses" &&
+      Array.isArray(input) &&
+      input.some(
+        (item) =>
+          typeof item === "object" &&
+          item !== null &&
+          !Array.isArray(item) &&
+          (item as Record<string, unknown>).type === "compaction_trigger"
+      )
+    );
+  }
+
+  hasProviderBoundCompactionState(): boolean {
+    if (
+      this.requestUrl.pathname !== "/v1/responses" ||
+      !Array.isArray(this.request.message.input)
+    ) {
+      return false;
+    }
+    return this.request.message.input.some(
+      (item) =>
+        typeof item === "object" &&
+        item !== null &&
+        !Array.isArray(item) &&
+        (item as Record<string, unknown>).type === "compaction" &&
+        typeof (item as Record<string, unknown>).encrypted_content === "string"
+    );
+  }
+
   private readonly endpointPolicy: EndpointPolicy;
 
   // 模型重定向追踪：保存原始模型名（重定向前）

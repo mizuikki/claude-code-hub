@@ -43,6 +43,7 @@ export type CodexParallelToolCallsPreference = "inherit" | "true" | "false";
 export type CodexImageGenerationPreference = "inherit" | "true" | "false";
 
 export type CodexServiceTierPreference = "inherit" | "auto" | "default" | "flex" | "priority";
+export type CodexCompactionV2Capability = "native_v2" | "legacy_adapter" | "unsupported";
 
 // Anthropic (Messages API) parameter overrides
 // - "inherit": follow client request (default)
@@ -427,6 +428,7 @@ export interface Provider {
   codexParallelToolCallsPreference: CodexParallelToolCallsPreference | null;
   codexImageGenerationPreference: CodexImageGenerationPreference | null;
   codexServiceTierPreference: CodexServiceTierPreference | null;
+  codexCompactionV2Capability: CodexCompactionV2Capability;
 
   // DeepSeek reasoning effort override (only for deepseek providers)
   deepseekReasoningEffortPreference: DeepSeekReasoningEffortPreference | null;
@@ -524,6 +526,7 @@ export interface ProviderDisplay {
   codexParallelToolCallsPreference: CodexParallelToolCallsPreference | null;
   codexImageGenerationPreference: CodexImageGenerationPreference | null;
   codexServiceTierPreference: CodexServiceTierPreference | null;
+  codexCompactionV2Capability: CodexCompactionV2Capability;
   // DeepSeek reasoning effort override (only for deepseek providers)
   deepseekReasoningEffortPreference: DeepSeekReasoningEffortPreference | null;
   anthropicMaxTokensPreference: AnthropicMaxTokensPreference | null;
@@ -646,6 +649,7 @@ export interface CreateProviderData {
   codex_parallel_tool_calls_preference?: CodexParallelToolCallsPreference | null;
   codex_image_generation_preference?: CodexImageGenerationPreference | null;
   codex_service_tier_preference?: CodexServiceTierPreference | null;
+  codex_compaction_v2_capability?: CodexCompactionV2Capability | null;
   anthropic_max_tokens_preference?: AnthropicMaxTokensPreference | null;
   anthropic_thinking_budget_preference?: AnthropicThinkingBudgetPreference | null;
   anthropic_adaptive_thinking?: AnthropicAdaptiveThinkingConfig | null;
@@ -732,6 +736,7 @@ export interface UpdateProviderData {
   codex_parallel_tool_calls_preference?: CodexParallelToolCallsPreference | null;
   codex_image_generation_preference?: CodexImageGenerationPreference | null;
   codex_service_tier_preference?: CodexServiceTierPreference | null;
+  codex_compaction_v2_capability?: CodexCompactionV2Capability | null;
   anthropic_max_tokens_preference?: AnthropicMaxTokensPreference | null;
   anthropic_thinking_budget_preference?: AnthropicThinkingBudgetPreference | null;
   anthropic_adaptive_thinking?: AnthropicAdaptiveThinkingConfig | null;

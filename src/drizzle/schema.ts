@@ -334,6 +334,11 @@ export const providers = pgTable('providers', {
   // true 强制注入 type="image_generation"，false 强制移除该工具能力
   codexImageGenerationPreference: varchar('codex_image_generation_preference', { length: 10 }),
   codexServiceTierPreference: varchar('codex_service_tier_preference', { length: 20 }),
+  // Existing Codex relays commonly expose the legacy summary shape, so the default is compatible.
+  codexCompactionV2Capability: varchar('codex_compaction_v2_capability', { length: 20 })
+    .notNull()
+    .default('legacy_adapter')
+    .$type<'native_v2' | 'legacy_adapter' | 'unsupported'>(),
 
   // DeepSeek reasoning effort override (only for deepseek providers)
   // - 'inherit': follow client request (default)

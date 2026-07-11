@@ -16,6 +16,7 @@ import { isClientAllowedDetailed } from "./client-detector";
 import type { ClientFormat } from "./format-mapper";
 import { getVerboseProviderErrorCached } from "./provider-selector-settings-cache";
 import { ProxyResponses } from "./responses";
+import { providerSupportsResponsesCompactionV2 } from "./responses-compaction-v2";
 import type { ProxySession } from "./session";
 
 /**
@@ -354,6 +355,14 @@ export class ProxyProviderResolver {
     // 循环结束：所有可用供应商都已尝试或无可用供应商
     const status = 503;
 
+    if (session.isResponsesCompactionV2() && excludedProviders.length === 0) {
+      return ProxyResponses.buildError(
+        status,
+        "No provider supports Responses compaction v2",
+        "responses_compaction_v2_not_supported"
+      );
+    }
+
     // 获取系统设置中的 verboseProviderError 配置（使用缓存避免频繁查询数据库）
     const verboseError = await getVerboseProviderErrorCached();
 
@@ -487,6 +496,12 @@ export class ProxyProviderResolver {
         providerId,
       });
       await SessionManager.clearSessionProvider(session.sessionId);
+      return null;
+    }
+
+    // Compaction ciphertext is provider-specific. Never break an existing binding or reuse an
+    // incapable provider for a v2 trigger.
+    if (session.isResponsesCompactionV2() && !providerSupportsResponsesCompactionV2(provider)) {
       return null;
     }
 
@@ -851,6 +866,13 @@ export class ProxyProviderResolver {
     const enabledProviders = visibleProviders.filter((provider) => {
       // 2a. 基础过滤
       if (!provider.isEnabled || excludeIds.includes(provider.id)) {
+        return false;
+      }
+
+      if (
+        session?.isResponsesCompactionV2?.() &&
+        !providerSupportsResponsesCompactionV2(provider)
+      ) {
         return false;
       }
 
