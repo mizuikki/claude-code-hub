@@ -355,9 +355,12 @@ export class ProxyProviderResolver {
     // 循环结束：所有可用供应商都已尝试或无可用供应商
     const status = 503;
 
+    const requiresCompactionProvider =
+      session.isResponsesCompactionV2?.() || session.hasProviderBoundCompactionState?.();
     if (
-      (session.isResponsesCompactionV2?.() || session.hasProviderBoundCompactionState?.()) &&
-      excludedProviders.length === 0
+      requiresCompactionProvider &&
+      excludedProviders.length === 0 &&
+      (await ProxyProviderResolver.isCompactionCapabilityGap(session))
     ) {
       return ProxyResponses.buildError(
         status,
@@ -469,6 +472,23 @@ export class ProxyProviderResolver {
   ): Promise<Provider | null> {
     const { provider } = await ProxyProviderResolver.pickRandomProvider(session, excludeIds);
     return provider;
+  }
+
+  /**
+   * Distinguishes a capability gap from an unavailable compatible provider.
+   * Bound ciphertext is provider-specific, so only the bound provider is relevant.
+   */
+  private static async isCompactionCapabilityGap(session: ProxySession): Promise<boolean> {
+    const requiredProviderId = session.getRequiredCompactionProviderId?.() ?? null;
+    if (requiredProviderId !== null) {
+      const requiredProvider = await findProviderById(requiredProviderId);
+      // A deleted binding is an availability failure. An existing unsupported binding is a
+      // genuine capability mismatch and must not be replayed through another provider.
+      return requiredProvider !== null && !providerSupportsResponsesCompactionV2(requiredProvider);
+    }
+
+    const providers = await session.getProvidersSnapshot();
+    return !providers.some(providerSupportsResponsesCompactionV2);
   }
 
   /**

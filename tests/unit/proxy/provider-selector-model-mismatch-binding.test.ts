@@ -240,3 +240,60 @@ describe("findReusable - model mismatch clears stale binding", () => {
     );
   });
 });
+
+describe("Responses compaction v2 error classification", () => {
+  const createCodexProvider = (capability: Provider["codexCompactionV2Capability"]): Provider =>
+    ({
+      id: 101,
+      name: "codex-provider",
+      providerType: "codex",
+      codexCompactionV2Capability: capability,
+    }) as Provider;
+
+  test("treats an unavailable compatible bound provider as an availability failure", async () => {
+    const { ProxyProviderResolver } = await import("@/app/v1/_lib/proxy/provider-selector");
+    providerRepositoryMocks.findProviderById.mockResolvedValueOnce(
+      createCodexProvider("native_v2")
+    );
+
+    const isCapabilityGap = await (ProxyProviderResolver as any).isCompactionCapabilityGap({
+      getRequiredCompactionProviderId: () => 101,
+    });
+
+    expect(isCapabilityGap).toBe(false);
+  });
+
+  test("reports a capability gap for an unsupported bound provider", async () => {
+    const { ProxyProviderResolver } = await import("@/app/v1/_lib/proxy/provider-selector");
+    providerRepositoryMocks.findProviderById.mockResolvedValueOnce(
+      createCodexProvider("unsupported")
+    );
+
+    const isCapabilityGap = await (ProxyProviderResolver as any).isCompactionCapabilityGap({
+      getRequiredCompactionProviderId: () => 101,
+    });
+
+    expect(isCapabilityGap).toBe(true);
+  });
+
+  test("treats a missing bound provider as an availability failure", async () => {
+    const { ProxyProviderResolver } = await import("@/app/v1/_lib/proxy/provider-selector");
+    providerRepositoryMocks.findProviderById.mockResolvedValueOnce(null);
+
+    const isCapabilityGap = await (ProxyProviderResolver as any).isCompactionCapabilityGap({
+      getRequiredCompactionProviderId: () => 101,
+    });
+
+    expect(isCapabilityGap).toBe(false);
+  });
+
+  test("reports a capability gap when no unbound provider supports v2", async () => {
+    const { ProxyProviderResolver } = await import("@/app/v1/_lib/proxy/provider-selector");
+    const isCapabilityGap = await (ProxyProviderResolver as any).isCompactionCapabilityGap({
+      getRequiredCompactionProviderId: () => null,
+      getProvidersSnapshot: async () => [createCodexProvider("unsupported")],
+    });
+
+    expect(isCapabilityGap).toBe(true);
+  });
+});
