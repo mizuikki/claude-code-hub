@@ -206,6 +206,7 @@
     },
     "codexOverrides": {
       "compactionV2": {
+        "help": "ネイティブ v2 は標準 compaction イベントを出力正規化せずに転送します。レガシーアダプターは暗号化された compaction_summary を変換します。未対応プロバイダーは v2 ルーティングから除外されます。",
         "label": "Responses compaction v2 機能",
         "options": { "native_v2": "ネイティブ v2", "legacy_adapter": "レガシーアダプター", "unsupported": "未対応" }
       },

@@ -355,7 +355,10 @@ export class ProxyProviderResolver {
     // 循环结束：所有可用供应商都已尝试或无可用供应商
     const status = 503;
 
-    if (session.isResponsesCompactionV2() && excludedProviders.length === 0) {
+    if (
+      (session.isResponsesCompactionV2?.() || session.hasProviderBoundCompactionState?.()) &&
+      excludedProviders.length === 0
+    ) {
       return ProxyResponses.buildError(
         status,
         "No provider supports Responses compaction v2",
@@ -488,6 +491,16 @@ export class ProxyProviderResolver {
       return null;
     }
 
+    const hasBoundCompactionState = session.hasProviderBoundCompactionState?.() ?? false;
+    if (hasBoundCompactionState) {
+      session.setRequiredCompactionProviderId?.(providerId);
+    }
+    const clearReusableBinding = async () => {
+      if (!hasBoundCompactionState) {
+        await SessionManager.clearSessionProvider(session.sessionId!);
+      }
+    };
+
     // 验证 provider 可用性
     const provider = await findProviderById(providerId);
     if (!provider?.isEnabled) {
@@ -495,13 +508,15 @@ export class ProxyProviderResolver {
         sessionId: session.sessionId,
         providerId,
       });
-      await SessionManager.clearSessionProvider(session.sessionId);
+      await clearReusableBinding();
       return null;
     }
 
     // Compaction ciphertext is provider-specific. Never break an existing binding or reuse an
     // incapable provider for a v2 trigger.
-    if (session.isResponsesCompactionV2() && !providerSupportsResponsesCompactionV2(provider)) {
+    const requiresCompactionProvider =
+      session.isResponsesCompactionV2?.() || hasBoundCompactionState;
+    if (requiresCompactionProvider && !providerSupportsResponsesCompactionV2(provider)) {
       return null;
     }
 
@@ -511,7 +526,7 @@ export class ProxyProviderResolver {
         providerId: provider.id,
         providerName: provider.name,
       });
-      await SessionManager.clearSessionProvider(session.sessionId);
+      await clearReusableBinding();
       return null;
     }
 
@@ -525,7 +540,7 @@ export class ProxyProviderResolver {
         activeTimeEnd: provider.activeTimeEnd,
         timezone: systemTimezone,
       });
-      await SessionManager.clearSessionProvider(session.sessionId);
+      await clearReusableBinding();
       return null;
     }
 
@@ -566,7 +581,7 @@ export class ProxyProviderResolver {
         providerType: provider.providerType,
         originalFormat: session.originalFormat,
       });
-      await SessionManager.clearSessionProvider(session.sessionId);
+      await clearReusableBinding();
       return null;
     }
 
@@ -585,7 +600,7 @@ export class ProxyProviderResolver {
       // 清除过时绑定，避免 SET NX 死锁
       // 当 session 内请求模型发生变化时，旧绑定已无意义，
       // 清除后新的成功请求可通过 SET NX 重新绑定匹配的 provider
-      await SessionManager.clearSessionProvider(session.sessionId);
+      await clearReusableBinding();
       logger.info("ProviderSelector: Cleared stale provider binding (model mismatch)", {
         sessionId: session.sessionId,
         staleProviderId: provider.id,
@@ -641,7 +656,7 @@ export class ProxyProviderResolver {
           ],
         },
       });
-      await SessionManager.clearSessionProvider(session.sessionId);
+      await clearReusableBinding();
       return null;
     }
 
@@ -861,6 +876,9 @@ export class ProxyProviderResolver {
 
     // Resolve system timezone once for active time checks
     const systemTimezone = await resolveSystemTimezone();
+    const requiresCompactionProvider =
+      session?.isResponsesCompactionV2?.() || session?.hasProviderBoundCompactionState?.();
+    const requiredCompactionProviderId = session?.getRequiredCompactionProviderId?.() ?? null;
 
     // Step 2: 基础过滤 + 格式/模型匹配（使用 visibleProviders）
     const enabledProviders = visibleProviders.filter((provider) => {
@@ -869,10 +887,11 @@ export class ProxyProviderResolver {
         return false;
       }
 
-      if (
-        session?.isResponsesCompactionV2?.() &&
-        !providerSupportsResponsesCompactionV2(provider)
-      ) {
+      if (requiredCompactionProviderId !== null && provider.id !== requiredCompactionProviderId) {
+        return false;
+      }
+
+      if (requiresCompactionProvider && !providerSupportsResponsesCompactionV2(provider)) {
         return false;
       }
 

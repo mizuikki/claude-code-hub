@@ -112,6 +112,14 @@ function transformSseBlock(
   return { text: `${output.join("\n")}\n\n`, type, doneCompactions, invalidCompactions };
 }
 
+function assertValidLegacyCompaction(doneCompactions: number, invalidCompactions: number): void {
+  if (doneCompactions !== 1 || invalidCompactions !== 0) {
+    throw new Error(
+      `Invalid compaction v2 response: expected exactly one encrypted compaction item, received ${doneCompactions}`
+    );
+  }
+}
+
 export function processResponsesCompactionV2Stream(
   source: ReadableStream<Uint8Array>,
   capability: CodexCompactionV2Capability
@@ -120,95 +128,119 @@ export function processResponsesCompactionV2Stream(
   if (!legacyAdapter) {
     return terminalAwarePassthrough(source);
   }
+  const reader = source.getReader();
+  let cancelled = false;
   return new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const reader = source.getReader();
-      const decoder = new TextDecoder();
-      const encoder = new TextEncoder();
-      let pending = "";
-      let successfulTerminal = false;
-      let doneCompactions = 0;
-      let invalidCompactions = 0;
-      const buffered: string[] = [];
-      const emit = (text: string) =>
-        legacyAdapter ? buffered.push(text) : controller.enqueue(encoder.encode(text));
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          pending += decoder.decode(value, { stream: true });
-          pending = pending.replace(/\r\n/g, "\n");
-          let boundary = pending.indexOf("\n\n");
-          while (boundary >= 0) {
-            const block = pending.slice(0, boundary);
-            pending = pending.slice(boundary + 2);
-            const event = transformSseBlock(block, legacyAdapter);
+    start(controller) {
+      void (async () => {
+        const decoder = new TextDecoder();
+        const encoder = new TextEncoder();
+        let pending = "";
+        let successfulTerminal = false;
+        let doneCompactions = 0;
+        let invalidCompactions = 0;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            pending += decoder.decode(value, { stream: true });
+            pending = pending.replace(/\r\n/g, "\n");
+            let boundary = pending.indexOf("\n\n");
+            while (boundary >= 0) {
+              const block = pending.slice(0, boundary);
+              pending = pending.slice(boundary + 2);
+              const event = transformSseBlock(block, legacyAdapter);
+              doneCompactions += event.doneCompactions;
+              invalidCompactions += event.invalidCompactions;
+              if (event.type === "response.completed") {
+                assertValidLegacyCompaction(doneCompactions, invalidCompactions);
+                successfulTerminal = true;
+              }
+              controller.enqueue(encoder.encode(event.text));
+              boundary = pending.indexOf("\n\n");
+            }
+          }
+          pending += decoder.decode();
+          if (pending.trim()) {
+            const event = transformSseBlock(pending, legacyAdapter);
             doneCompactions += event.doneCompactions;
             invalidCompactions += event.invalidCompactions;
-            if (event.type === "response.completed") successfulTerminal = true;
-            emit(event.text);
-            boundary = pending.indexOf("\n\n");
+            if (event.type === "response.completed") {
+              assertValidLegacyCompaction(doneCompactions, invalidCompactions);
+              successfulTerminal = true;
+            }
+            controller.enqueue(encoder.encode(event.text));
+          }
+        } catch (error) {
+          if (cancelled) return;
+          if (!(successfulTerminal && isExpectedPostTerminalError(error))) {
+            controller.error(error);
+            return;
           }
         }
-        pending += decoder.decode();
-        if (pending.trim()) {
-          const event = transformSseBlock(pending, legacyAdapter);
-          doneCompactions += event.doneCompactions;
-          invalidCompactions += event.invalidCompactions;
-          if (event.type === "response.completed") successfulTerminal = true;
-          emit(event.text);
-        }
-      } catch (error) {
-        if (!(successfulTerminal && isExpectedPostTerminalError(error))) {
-          controller.error(error);
-          return;
-        }
-      }
 
-      if (legacyAdapter) {
-        if (!successfulTerminal || doneCompactions !== 1 || invalidCompactions !== 0) {
-          controller.error(
-            new Error(
-              `Invalid compaction v2 response: expected exactly one encrypted compaction item, received ${doneCompactions}`
-            )
-          );
-          return;
+        if (legacyAdapter) {
+          if (!successfulTerminal) {
+            controller.error(
+              new Error("Invalid compaction v2 response: missing response.completed")
+            );
+            return;
+          }
         }
-        for (const text of buffered) controller.enqueue(encoder.encode(text));
+        controller.close();
+      })();
+    },
+    async cancel(reason) {
+      cancelled = true;
+      try {
+        await reader.cancel(reason);
+      } catch {
+        // The downstream is already cancelled; source cancellation is best effort.
       }
-      controller.close();
     },
   });
 }
 
 function terminalAwarePassthrough(source: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+  const reader = source.getReader();
+  let cancelled = false;
   return new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const reader = source.getReader();
-      const decoder = new TextDecoder();
-      let pending = "";
-      let successfulTerminal = false;
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          controller.enqueue(value);
-          pending = (pending + decoder.decode(value, { stream: true })).replace(/\r\n/g, "\n");
-          let boundary = pending.indexOf("\n\n");
-          while (boundary >= 0) {
-            const event = transformSseBlock(pending.slice(0, boundary), false);
-            if (event.type === "response.completed") successfulTerminal = true;
-            pending = pending.slice(boundary + 2);
-            boundary = pending.indexOf("\n\n");
+    start(controller) {
+      void (async () => {
+        const decoder = new TextDecoder();
+        let pending = "";
+        let successfulTerminal = false;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            controller.enqueue(value);
+            pending = (pending + decoder.decode(value, { stream: true })).replace(/\r\n/g, "\n");
+            let boundary = pending.indexOf("\n\n");
+            while (boundary >= 0) {
+              const event = transformSseBlock(pending.slice(0, boundary), false);
+              if (event.type === "response.completed") successfulTerminal = true;
+              pending = pending.slice(boundary + 2);
+              boundary = pending.indexOf("\n\n");
+            }
+          }
+        } catch (error) {
+          if (cancelled) return;
+          if (!(successfulTerminal && isExpectedPostTerminalError(error))) {
+            controller.error(error);
+            return;
           }
         }
-      } catch (error) {
-        if (!(successfulTerminal && isExpectedPostTerminalError(error))) {
-          controller.error(error);
-          return;
-        }
+        controller.close();
+      })();
+    },
+    async cancel(reason) {
+      cancelled = true;
+      try {
+        await reader.cancel(reason);
+      } catch {
+        // The downstream is already cancelled; source cancellation is best effort.
       }
-      controller.close();
     },
   });
 }

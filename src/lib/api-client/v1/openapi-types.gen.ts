@@ -4440,6 +4440,11 @@ export interface operations {
                             deepseekReasoningEffortPreference: "inherit" | "high" | "max" | null;
                             /** @description Codex service tier preference. */
                             codexServiceTierPreference: string | null;
+                            /**
+                             * @description Responses compaction v2 capability.
+                             * @enum {string}
+                             */
+                            codexCompactionV2Capability: "native_v2" | "legacy_adapter" | "unsupported";
                             /** @description Anthropic max tokens preference. */
                             anthropicMaxTokensPreference: string | null;
                             /** @description Anthropic thinking budget preference. */
@@ -4768,6 +4773,11 @@ export interface operations {
                     /** @description Codex service tier preference. */
                     codex_service_tier_preference?: string;
                     /**
+                     * @description Responses compaction v2 capability.
+                     * @enum {string}
+                     */
+                    codex_compaction_v2_capability?: "native_v2" | "legacy_adapter" | "unsupported";
+                    /**
                      * @description DeepSeek reasoning effort.
                      * @enum {string}
                      */
@@ -4915,6 +4925,11 @@ export interface operations {
                         deepseekReasoningEffortPreference: "inherit" | "high" | "max" | null;
                         /** @description Codex service tier preference. */
                         codexServiceTierPreference: string | null;
+                        /**
+                         * @description Responses compaction v2 capability.
+                         * @enum {string}
+                         */
+                        codexCompactionV2Capability: "native_v2" | "legacy_adapter" | "unsupported";
                         /** @description Anthropic max tokens preference. */
                         anthropicMaxTokensPreference: string | null;
                         /** @description Anthropic thinking budget preference. */
@@ -5242,6 +5257,11 @@ export interface operations {
                         deepseekReasoningEffortPreference: "inherit" | "high" | "max" | null;
                         /** @description Codex service tier preference. */
                         codexServiceTierPreference: string | null;
+                        /**
+                         * @description Responses compaction v2 capability.
+                         * @enum {string}
+                         */
+                        codexCompactionV2Capability: "native_v2" | "legacy_adapter" | "unsupported";
                         /** @description Anthropic max tokens preference. */
                         anthropicMaxTokensPreference: string | null;
                         /** @description Anthropic thinking budget preference. */
@@ -5745,6 +5765,11 @@ export interface operations {
                     /** @description Codex service tier preference. */
                     codex_service_tier_preference?: string;
                     /**
+                     * @description Responses compaction v2 capability.
+                     * @enum {string}
+                     */
+                    codex_compaction_v2_capability?: "native_v2" | "legacy_adapter" | "unsupported";
+                    /**
                      * @description DeepSeek reasoning effort.
                      * @enum {string}
                      */
@@ -5898,6 +5923,11 @@ export interface operations {
                         deepseekReasoningEffortPreference: "inherit" | "high" | "max" | null;
                         /** @description Codex service tier preference. */
                         codexServiceTierPreference: string | null;
+                        /**
+                         * @description Responses compaction v2 capability.
+                         * @enum {string}
+                         */
+                        codexCompactionV2Capability: "native_v2" | "legacy_adapter" | "unsupported";
                         /** @description Anthropic max tokens preference. */
                         anthropicMaxTokensPreference: string | null;
                         /** @description Anthropic thinking budget preference. */
@@ -7728,6 +7758,11 @@ export interface operations {
                         codex_image_generation_preference?: "inherit" | "true" | "false" | null;
                         /** @description Codex service tier preference. */
                         codex_service_tier_preference?: string | null;
+                        /**
+                         * @description Responses compaction v2 capability.
+                         * @enum {string}
+                         */
+                        codex_compaction_v2_capability?: "native_v2" | "legacy_adapter" | "unsupported";
                         /** @description Anthropic thinking budget preference. */
                         anthropic_thinking_budget_preference?: string | null;
                         /** @description Anthropic adaptive thinking config. */

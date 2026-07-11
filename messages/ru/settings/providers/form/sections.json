@@ -206,6 +206,7 @@
     },
     "codexOverrides": {
       "compactionV2": {
+        "help": "Нативный v2 передает стандартные события compaction без нормализации. Адаптер преобразует зашифрованные compaction_summary. Неподдерживаемые провайдеры исключаются из маршрутизации v2.",
         "label": "Возможность Responses compaction v2",
         "options": { "native_v2": "Нативный v2", "legacy_adapter": "Адаптер старого протокола", "unsupported": "Не поддерживается" }
       },

@@ -398,27 +398,42 @@ export function OptionsSection({ subSectionRefs }: OptionsSectionProps) {
                 </SmartInputWrapper>
 
                 <SmartInputWrapper label={t("sections.routing.codexOverrides.compactionV2.label")}>
-                  <Select
-                    value={state.routing.codexCompactionV2Capability}
-                    onValueChange={(value) =>
-                      dispatch({
-                        type: "SET_CODEX_COMPACTION_V2_CAPABILITY",
-                        payload: value as CodexCompactionV2Capability,
-                      })
-                    }
-                    disabled={state.ui.isPending}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {["native_v2", "legacy_adapter", "unsupported"].map((value) => (
-                        <SelectItem key={value} value={value}>
-                          {t(`sections.routing.codexOverrides.compactionV2.options.${value}`)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="relative">
+                        <Select
+                          value={state.routing.codexCompactionV2Capability}
+                          onValueChange={(value) =>
+                            dispatch({
+                              type: "SET_CODEX_COMPACTION_V2_CAPABILITY",
+                              payload: value as CodexCompactionV2Capability,
+                            })
+                          }
+                          disabled={state.ui.isPending}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {["native_v2", "legacy_adapter", "unsupported"].map((value) => (
+                              <SelectItem key={value} value={value}>
+                                {t(`sections.routing.codexOverrides.compactionV2.options.${value}`)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Info
+                          aria-hidden="true"
+                          className="pointer-events-none absolute right-10 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"
+                        />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs">
+                      <p className="text-sm">
+                        {t("sections.routing.codexOverrides.compactionV2.help")}
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
                 </SmartInputWrapper>
               </div>
             </SectionCard>

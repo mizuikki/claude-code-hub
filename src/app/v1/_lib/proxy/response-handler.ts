@@ -1379,7 +1379,7 @@ export class ProxyResponseHandler {
     }
 
     let fixedResponse = response;
-    const isCompactionV2 = session.isResponsesCompactionV2();
+    const isCompactionV2 = session.isResponsesCompactionV2?.() ?? false;
     const compactionCapability = session.provider?.codexCompactionV2Capability ?? "unsupported";
     if (
       !session.getEndpointPolicy().bypassResponseRectifier &&

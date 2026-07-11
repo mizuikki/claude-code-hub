@@ -83,6 +83,26 @@ describe("Responses compaction v2", () => {
     expect(output).toContain('"usage":{"input_tokens":2}');
   });
 
+  test("streams legacy events before the upstream response ends and forwards cancellation", async () => {
+    let cancelReason: unknown;
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode('data: {"type":"response.created","response":{"id":"r1"}}\n\n')
+        );
+      },
+      cancel(reason) {
+        cancelReason = reason;
+      },
+    });
+    const reader = processResponsesCompactionV2Stream(source, "legacy_adapter").getReader();
+    const first = await reader.read();
+
+    expect(new TextDecoder().decode(first.value)).toContain("response.created");
+    await reader.cancel("client disconnected");
+    expect(cancelReason).toBe("client disconnected");
+  });
+
   test.each([
     ["zero", 'data: {"type":"response.completed","response":{"output":[]}}\n\n'],
     [
