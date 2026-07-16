@@ -72,9 +72,11 @@ async function drainRejectedBody(response: Response): Promise<void> {
   } catch {
     // expected stream failure
   }
-  // Allow stream error listeners to settle.
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
+}
+
+/** Short bounded settle window for negative assertions only. */
+async function settleBriefly(ms = 50): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 describe("ProxyForwarder body stream agent invalidation", () => {
@@ -114,10 +116,15 @@ describe("ProxyForwarder body stream agent invalidation", () => {
     expect(response.status).toBe(200);
     await drainRejectedBody(response);
 
-    expect(agentPoolMocks.markUnhealthy).toHaveBeenCalledWith(
-      "direct:example.com",
-      expect.stringContaining("ECONNRESET"),
-      "dispatcher-1"
+    await vi.waitFor(
+      () => {
+        expect(agentPoolMocks.markUnhealthy).toHaveBeenCalledWith(
+          "direct:example.com",
+          expect.stringContaining("ECONNRESET"),
+          "dispatcher-1"
+        );
+      },
+      { timeout: 2000, interval: 10 }
     );
   });
 
@@ -156,6 +163,7 @@ describe("ProxyForwarder body stream agent invalidation", () => {
 
     expect(response.status).toBe(200);
     await drainRejectedBody(response);
+    await settleBriefly();
 
     expect(agentPoolMocks.markUnhealthy).not.toHaveBeenCalled();
   });
@@ -189,6 +197,7 @@ describe("ProxyForwarder body stream agent invalidation", () => {
 
     expect(response.status).toBe(200);
     await drainRejectedBody(response);
+    await settleBriefly();
 
     expect(agentPoolMocks.markUnhealthy).not.toHaveBeenCalled();
   });
