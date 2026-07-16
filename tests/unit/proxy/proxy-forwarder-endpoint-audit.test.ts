@@ -325,7 +325,8 @@ describe("ProxyForwarder - endpoint audit", () => {
       );
 
       const sendPromise = ProxyForwarder.send(session);
-      await vi.advanceTimersByTimeAsync(100);
+      // SYSTEM_ERROR backoff after attempt 1: 250ms
+      await vi.advanceTimersByTimeAsync(250);
       const response = await sendPromise;
       expect(response.status).toBe(200);
 
