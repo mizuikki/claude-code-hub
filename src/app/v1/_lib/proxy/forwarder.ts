@@ -73,9 +73,11 @@ import {
   EmptyResponseError,
   ErrorCategory,
   getErrorDetectionResultAsync,
+  getSystemErrorRetryDelayMs,
   isClientAbortError,
   isEmptyResponseError,
   isHttp2Error,
+  isPooledConnectionTransportError,
   isSSLCertificateError,
   ProxyError,
   sanitizeUrl,
@@ -1973,20 +1975,23 @@ export class ProxyForwarder {
               throw lastError;
             }
 
-            // 第1次失败：等待100ms后重试当前供应商
+            // 第1次失败：退避后重试当前供应商（重建连接/换 endpoint）
             if (attemptCount < maxAttemptsPerProvider) {
               // Network error: advance to next endpoint for retry
               // This implements "endpoint stickiness" where network errors switch endpoints
               // but non-network errors (PROVIDER_ERROR) keep the same endpoint
               currentEndpointIndex++;
+              const retryDelayMs = getSystemErrorRetryDelayMs(attemptCount);
               logger.debug("ProxyForwarder: Advancing endpoint index due to network error", {
                 providerId: currentProvider.id,
                 previousEndpointIndex: currentEndpointIndex - 1,
                 newEndpointIndex: currentEndpointIndex,
                 maxEndpointIndex: endpointCandidates.length - 1,
+                retryDelayMs,
+                failedAttemptNumber: attemptCount,
               });
 
-              await new Promise((resolve) => setTimeout(resolve, 100));
+              await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
               continue; // Continue retry with next endpoint
             }
 
@@ -3258,42 +3263,54 @@ export class ProxyForwarder {
         syscall?: string; // 系统调用：如 'getaddrinfo'、'connect'、'read'、'write'
       };
 
-      // ⭐ SSL 证书错误检测：标记 Agent 为不健康，下次请求将创建新 Agent
-      const sslErrorCacheKey = proxyConfig?.cacheKey ?? directConnectionCacheKey;
-      const sslErrorDispatcherId = proxyConfig?.dispatcherId ?? directConnectionDispatcherId;
-      if (isSSLCertificateError(err)) {
-        if (sslErrorCacheKey && sslErrorDispatcherId) {
+      // ⭐ SSL / 连接复用相关传输错误：标记 Agent 为不健康，下次请求将创建新 Agent
+      // ECONNRESET / UND_ERR_SOCKET 等常表示 keep-alive 连接半死，必须驱逐池内实例。
+      const pooledAgentCacheKey = proxyConfig?.cacheKey ?? directConnectionCacheKey;
+      const pooledAgentDispatcherId = proxyConfig?.dispatcherId ?? directConnectionDispatcherId;
+      const isSslError = isSSLCertificateError(err);
+      const isPooledTransportError = isPooledConnectionTransportError(err);
+      if (isSslError || isPooledTransportError) {
+        const unhealthyReason = isSslError
+          ? err.message
+          : `transport_error: ${err.code ?? err.name}: ${err.message}`;
+        if (pooledAgentCacheKey && pooledAgentDispatcherId) {
           const pool = getGlobalAgentPool();
-          pool.markUnhealthy(sslErrorCacheKey, err.message, sslErrorDispatcherId);
-          logger.warn("ProxyForwarder: SSL certificate error detected, marked agent as unhealthy", {
+          pool.markUnhealthy(pooledAgentCacheKey, unhealthyReason, pooledAgentDispatcherId);
+          logger.warn("ProxyForwarder: Marked pooled agent unhealthy after fetch failure", {
             providerId: provider.id,
             providerName: provider.name,
-            cacheKey: sslErrorCacheKey,
-            dispatcherId: sslErrorDispatcherId,
+            cacheKey: pooledAgentCacheKey,
+            dispatcherId: pooledAgentDispatcherId,
             connectionType: proxyConfig ? "proxy" : "direct",
+            reasonKind: isSslError ? "ssl" : "transport",
             errorMessage: err.message,
             errorCode: err.code,
           });
-        } else if (sslErrorCacheKey) {
+        } else if (pooledAgentCacheKey) {
           logger.warn(
-            "ProxyForwarder: SSL certificate error detected but dispatcherId is missing",
+            "ProxyForwarder: Fetch failure eligible for agent invalidation but dispatcherId is missing",
             {
               providerId: provider.id,
               providerName: provider.name,
-              cacheKey: sslErrorCacheKey,
+              cacheKey: pooledAgentCacheKey,
               connectionType: proxyConfig ? "proxy" : "direct",
+              reasonKind: isSslError ? "ssl" : "transport",
               errorMessage: err.message,
               errorCode: err.code,
             }
           );
         } else {
-          logger.warn("ProxyForwarder: SSL certificate error detected without pooled agent", {
-            providerId: provider.id,
-            providerName: provider.name,
-            connectionType: proxyConfig ? "proxy" : "direct",
-            errorMessage: err.message,
-            errorCode: err.code,
-          });
+          logger.warn(
+            "ProxyForwarder: Fetch failure eligible for agent invalidation without pooled agent",
+            {
+              providerId: provider.id,
+              providerName: provider.name,
+              connectionType: proxyConfig ? "proxy" : "direct",
+              reasonKind: isSslError ? "ssl" : "transport",
+              errorMessage: err.message,
+              errorCode: err.code,
+            }
+          );
         }
       }
 
