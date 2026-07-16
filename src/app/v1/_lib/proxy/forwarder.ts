@@ -194,6 +194,12 @@ const MAX_PROVIDER_SWITCHES = 20; // 保险栓：最多切换 20 次供应商（
 
 type CacheTtlOption = CacheTtlPreference | null | undefined;
 
+type PooledAgentContext = {
+  cacheKey: string | null;
+  dispatcherId: string | null;
+  connectionType: "proxy" | "direct";
+};
+
 type ProxySessionWithAttemptRuntime = ProxySession & {
   clearResponseTimeout?: () => void;
   responseController?: AbortController;
@@ -3225,7 +3231,12 @@ export class ProxyForwarder {
               provider.id,
               provider.name,
               session,
-              deferDetailSnapshotPersistence
+              deferDetailSnapshotPersistence,
+              {
+                cacheKey: proxyConfig?.cacheKey ?? directConnectionCacheKey,
+                dispatcherId: proxyConfig?.dispatcherId ?? directConnectionDispatcherId,
+                connectionType: proxyConfig ? "proxy" : "direct",
+              }
             )
           : await fetch(proxyUrl, init);
       // ⭐ fetch 成功：收到 HTTP 响应头，保留响应超时继续监控
@@ -3264,55 +3275,16 @@ export class ProxyForwarder {
       };
 
       // ⭐ SSL / 连接复用相关传输错误：标记 Agent 为不健康，下次请求将创建新 Agent
-      // ECONNRESET / UND_ERR_SOCKET 等常表示 keep-alive 连接半死，必须驱逐池内实例。
-      const pooledAgentCacheKey = proxyConfig?.cacheKey ?? directConnectionCacheKey;
-      const pooledAgentDispatcherId = proxyConfig?.dispatcherId ?? directConnectionDispatcherId;
-      const isSslError = isSSLCertificateError(err);
-      const isPooledTransportError = isPooledConnectionTransportError(err);
-      if (isSslError || isPooledTransportError) {
-        const unhealthyReason = isSslError
-          ? err.message
-          : `transport_error: ${err.code ?? err.name}: ${err.message}`;
-        if (pooledAgentCacheKey && pooledAgentDispatcherId) {
-          const pool = getGlobalAgentPool();
-          pool.markUnhealthy(pooledAgentCacheKey, unhealthyReason, pooledAgentDispatcherId);
-          logger.warn("ProxyForwarder: Marked pooled agent unhealthy after fetch failure", {
-            providerId: provider.id,
-            providerName: provider.name,
-            cacheKey: pooledAgentCacheKey,
-            dispatcherId: pooledAgentDispatcherId,
-            connectionType: proxyConfig ? "proxy" : "direct",
-            reasonKind: isSslError ? "ssl" : "transport",
-            errorMessage: err.message,
-            errorCode: err.code,
-          });
-        } else if (pooledAgentCacheKey) {
-          logger.warn(
-            "ProxyForwarder: Fetch failure eligible for agent invalidation but dispatcherId is missing",
-            {
-              providerId: provider.id,
-              providerName: provider.name,
-              cacheKey: pooledAgentCacheKey,
-              connectionType: proxyConfig ? "proxy" : "direct",
-              reasonKind: isSslError ? "ssl" : "transport",
-              errorMessage: err.message,
-              errorCode: err.code,
-            }
-          );
-        } else {
-          logger.warn(
-            "ProxyForwarder: Fetch failure eligible for agent invalidation without pooled agent",
-            {
-              providerId: provider.id,
-              providerName: provider.name,
-              connectionType: proxyConfig ? "proxy" : "direct",
-              reasonKind: isSslError ? "ssl" : "transport",
-              errorMessage: err.message,
-              errorCode: err.code,
-            }
-          );
-        }
-      }
+      ProxyForwarder.maybeMarkPooledAgentUnhealthy({
+        error: err,
+        providerId: provider.id,
+        providerName: provider.name,
+        cacheKey: proxyConfig?.cacheKey ?? directConnectionCacheKey,
+        dispatcherId: proxyConfig?.dispatcherId ?? directConnectionDispatcherId,
+        connectionType: proxyConfig ? "proxy" : "direct",
+        phase: "fetch",
+        clientAborted: session.clientAbortSignal?.aborted === true,
+      });
 
       // ⭐ 超时错误检测（优先级：response > client）
 
@@ -3513,7 +3485,12 @@ export class ProxyForwarder {
                 provider.id,
                 provider.name,
                 session,
-                deferDetailSnapshotPersistence
+                deferDetailSnapshotPersistence,
+                {
+                  cacheKey: http1ProxyConfig?.cacheKey ?? null,
+                  dispatcherId: http1ProxyConfig?.dispatcherId ?? null,
+                  connectionType: http1ProxyConfig ? "proxy" : "direct",
+                }
               )
             : await fetch(proxyUrl, http1FallbackInit);
 
@@ -3597,7 +3574,12 @@ export class ProxyForwarder {
                     provider.id,
                     provider.name,
                     session,
-                    deferDetailSnapshotPersistence
+                    deferDetailSnapshotPersistence,
+                    {
+                      cacheKey: null,
+                      dispatcherId: null,
+                      connectionType: "direct",
+                    }
                   )
                 : await fetch(proxyUrl, fallbackInit);
               logger.info("ProxyForwarder: Direct connection succeeded after proxy failure", {
@@ -5264,6 +5246,87 @@ export class ProxyForwarder {
   }
 
   /**
+   * Mark pooled agent unhealthy for SSL / connection-poisoning transport errors.
+   * Shared by pre-response fetch failures and post-header body-stream failures.
+   */
+  private static maybeMarkPooledAgentUnhealthy(options: {
+    error: unknown;
+    providerId: number;
+    providerName: string;
+    cacheKey?: string | null;
+    dispatcherId?: string | null;
+    connectionType: "proxy" | "direct";
+    phase: "fetch" | "body_stream";
+    clientAborted?: boolean;
+  }): void {
+    if (options.clientAborted) {
+      return;
+    }
+
+    const isSslError = isSSLCertificateError(options.error);
+    const isPooledTransportError = isPooledConnectionTransportError(options.error);
+    if (!isSslError && !isPooledTransportError) {
+      return;
+    }
+
+    const err =
+      options.error instanceof Error
+        ? options.error
+        : new Error(String(options.error ?? "unknown"));
+    const errorCode = (err as NodeJS.ErrnoException).code;
+    const unhealthyReason = isSslError
+      ? err.message
+      : `transport_error: ${errorCode ?? err.name}: ${err.message}`;
+    const reasonKind = isSslError ? "ssl" : "transport";
+
+    if (options.cacheKey && options.dispatcherId) {
+      getGlobalAgentPool().markUnhealthy(options.cacheKey, unhealthyReason, options.dispatcherId);
+      logger.warn("ProxyForwarder: Marked pooled agent unhealthy after transport failure", {
+        providerId: options.providerId,
+        providerName: options.providerName,
+        cacheKey: options.cacheKey,
+        dispatcherId: options.dispatcherId,
+        connectionType: options.connectionType,
+        phase: options.phase,
+        reasonKind,
+        errorMessage: err.message,
+        errorCode,
+      });
+      return;
+    }
+
+    if (options.cacheKey) {
+      logger.warn(
+        "ProxyForwarder: Transport failure eligible for agent invalidation but dispatcherId is missing",
+        {
+          providerId: options.providerId,
+          providerName: options.providerName,
+          cacheKey: options.cacheKey,
+          connectionType: options.connectionType,
+          phase: options.phase,
+          reasonKind,
+          errorMessage: err.message,
+          errorCode,
+        }
+      );
+      return;
+    }
+
+    logger.warn(
+      "ProxyForwarder: Transport failure eligible for agent invalidation without pooled agent",
+      {
+        providerId: options.providerId,
+        providerName: options.providerName,
+        connectionType: options.connectionType,
+        phase: options.phase,
+        reasonKind,
+        errorMessage: err.message,
+        errorCode,
+      }
+    );
+  }
+
+  /**
    * 使用 undici.request 绕过 fetch 的自动解压
    *
    * 原因：Node/undici 的 fetch 会自动根据 Content-Encoding 解压响应，且无法关闭。
@@ -5278,7 +5341,8 @@ export class ProxyForwarder {
     providerId: number,
     providerName: string,
     session?: ProxySession,
-    deferDetailSnapshotPersistence: boolean = false
+    deferDetailSnapshotPersistence: boolean = false,
+    pooledAgent?: PooledAgentContext | null
   ): Promise<Response> {
     const { FETCH_HEADERS_TIMEOUT: headersTimeout, FETCH_BODY_TIMEOUT: bodyTimeout } =
       getEnvConfig();
@@ -5329,6 +5393,19 @@ export class ProxyForwarder {
     // ⭐ 立即为 undici body 添加错误处理，防止 uncaughtException
     // 必须在任何其他操作之前设置，否则 ECONNRESET 等错误会导致 uncaughtException
     const rawBody = undiciRes.body as Readable;
+    const invalidatePooledAgentOnBodyStreamError = (err: Error) => {
+      ProxyForwarder.maybeMarkPooledAgentUnhealthy({
+        error: err,
+        providerId,
+        providerName,
+        cacheKey: pooledAgent?.cacheKey,
+        dispatcherId: pooledAgent?.dispatcherId,
+        connectionType: pooledAgent?.connectionType ?? "direct",
+        phase: "body_stream",
+        // Client abort can surface as ECONNRESET; do not poison the pool for that path.
+        clientAborted: session?.clientAbortSignal?.aborted === true,
+      });
+    };
     rawBody.on("error", (err) => {
       const code = (err as NodeJS.ErrnoException).code;
       // 客户端/上游断连是高频路径事件，降级为 debug 以减少噪音
@@ -5346,6 +5423,7 @@ export class ProxyForwarder {
         error: err.message,
         errorCode: code,
       });
+      invalidatePooledAgentOnBodyStreamError(err);
     });
 
     // 构建响应头
@@ -5444,6 +5522,8 @@ export class ProxyForwarder {
             error: err.message,
             errorCode: code,
           });
+          // rawBody 'error' may also fire; markUnhealthy is idempotent per dispatcher.
+          invalidatePooledAgentOnBodyStreamError(err);
         }
       });
 
