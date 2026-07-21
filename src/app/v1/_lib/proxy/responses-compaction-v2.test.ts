@@ -83,6 +83,15 @@ describe("Responses compaction v2", () => {
     expect(output).toContain('"usage":{"input_tokens":2}');
   });
 
+  test("accepts canonical compaction items returned by a legacy adapter provider", async () => {
+    const input =
+      'event: response.output_item.added\ndata: {"type":"response.output_item.added","item":{"type":"compaction","encrypted_content":"cipher"}}\n\nevent: response.output_item.done\ndata: {"type":"response.output_item.done","item":{"type":"compaction","encrypted_content":"cipher"}}\n\nevent: response.completed\ndata: {"type":"response.completed","response":{"output":[{"type":"compaction","encrypted_content":"cipher"}]}}\n\n';
+
+    expect(await read(processResponsesCompactionV2Stream(stream([input]), "legacy_adapter"))).toBe(
+      input
+    );
+  });
+
   test("streams legacy events before the upstream response ends and forwards cancellation", async () => {
     let cancelReason: unknown;
     const source = new ReadableStream<Uint8Array>({
@@ -108,6 +117,10 @@ describe("Responses compaction v2", () => {
     [
       "missing ciphertext",
       'data: {"type":"response.output_item.done","item":{"type":"compaction_summary"}}\n\ndata: {"type":"response.completed","response":{}}\n\n',
+    ],
+    [
+      "missing canonical ciphertext",
+      'data: {"type":"response.output_item.done","item":{"type":"compaction"}}\n\ndata: {"type":"response.completed","response":{}}\n\n',
     ],
     [
       "multiple",

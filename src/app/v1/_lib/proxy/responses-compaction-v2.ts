@@ -36,16 +36,27 @@ function isExpectedPostTerminalError(error: unknown): boolean {
   );
 }
 
-function adaptItem(item: unknown): { value: unknown; legacy: boolean; valid: boolean } {
+function adaptItem(item: unknown): {
+  value: unknown;
+  compaction: boolean;
+  legacy: boolean;
+  valid: boolean;
+} {
   if (typeof item !== "object" || item === null || Array.isArray(item)) {
-    return { value: item, legacy: false, valid: false };
+    return { value: item, compaction: false, legacy: false, valid: false };
   }
   const record = item as Record<string, unknown>;
-  if (record.type !== "compaction_summary") {
-    return { value: item, legacy: false, valid: record.type === "compaction" };
+  if (record.type !== "compaction" && record.type !== "compaction_summary") {
+    return { value: item, compaction: false, legacy: false, valid: false };
   }
   const valid = typeof record.encrypted_content === "string" && record.encrypted_content.length > 0;
-  return { value: valid ? { ...record, type: "compaction" } : item, legacy: true, valid };
+  const legacy = record.type === "compaction_summary";
+  return {
+    value: legacy && valid ? { ...record, type: "compaction" } : item,
+    compaction: true,
+    legacy,
+    valid,
+  };
 }
 
 function adaptPayload(payload: Record<string, unknown>): {
@@ -63,7 +74,7 @@ function adaptPayload(payload: Record<string, unknown>): {
   ) {
     const adapted = adaptItem(payload.item);
     if (adapted.legacy) next = { ...next, item: adapted.value };
-    if (payload.type === "response.output_item.done" && adapted.legacy) {
+    if (payload.type === "response.output_item.done" && adapted.compaction) {
       doneCompactions += 1;
       if (!adapted.valid) invalidCompactions += 1;
     }
