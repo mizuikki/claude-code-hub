@@ -53,7 +53,9 @@ next-env.d.ts
 .cursor/
 .claude/
 .codex/
+.pi/
 .serena/
+.agents/
 !src/app/dashboard/logs/
 !src/app/settings/logs/
 .idea/
@@ -92,3 +94,6 @@ tmp/
 .omx/
 .opencode/
 bunx-*/
+
+# Test
+.trellis/
