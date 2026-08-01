@@ -172,6 +172,7 @@ function createProvider(overrides: Partial<Provider> = {}): Provider {
     codexReasoningSummaryPreference: null,
     codexTextVerbosityPreference: null,
     codexParallelToolCallsPreference: null,
+    codexImageGenerationPreference: null,
     tpm: 0,
     rpm: 0,
     rpd: 0,
@@ -376,7 +377,8 @@ describe("ProxyForwarder - retry limit enforcement", () => {
       );
 
       const sendPromise = ProxyForwarder.send(session);
-      await vi.advanceTimersByTimeAsync(100);
+      // SYSTEM_ERROR backoff after attempt 1: 250ms
+      await vi.advanceTimersByTimeAsync(250);
       const response = await sendPromise;
 
       expect(response.status).toBe(200);
@@ -466,7 +468,8 @@ describe("ProxyForwarder - retry limit enforcement", () => {
       );
 
       const sendPromise = ProxyForwarder.send(session);
-      await vi.advanceTimersByTimeAsync(500);
+      // SYSTEM_ERROR backoff: 250 + 500 + 1000 + 1000 for 4 failed attempts before success
+      await vi.advanceTimersByTimeAsync(3000);
       const response = await sendPromise;
 
       expect(response.status).toBe(200);
@@ -550,7 +553,8 @@ describe("ProxyForwarder - retry limit enforcement", () => {
       );
 
       const sendPromise = ProxyForwarder.send(session);
-      await vi.advanceTimersByTimeAsync(300);
+      // SYSTEM_ERROR backoff: 250 + 500 for 2 failed attempts before success
+      await vi.advanceTimersByTimeAsync(800);
       const response = await sendPromise;
 
       expect(response.status).toBe(200);
@@ -965,7 +969,8 @@ describe("ProxyForwarder - endpoint stickiness on retry", () => {
       );
 
       const sendPromise = ProxyForwarder.send(session);
-      await vi.advanceTimersByTimeAsync(300);
+      // SYSTEM_ERROR backoff: 250 + 500 for 2 failed attempts before success
+      await vi.advanceTimersByTimeAsync(800);
       const response = await sendPromise;
 
       expect(response.status).toBe(200);
@@ -1229,7 +1234,8 @@ describe("ProxyForwarder - endpoint stickiness on retry", () => {
       );
 
       const sendPromise = ProxyForwarder.send(session);
-      await vi.advanceTimersByTimeAsync(500);
+      // Backoff mix: SYSTEM(attempt1)=250 + PROVIDER=100 + SYSTEM(attempt3)=1000
+      await vi.advanceTimersByTimeAsync(1500);
       const response = await sendPromise;
 
       expect(response.status).toBe(200);

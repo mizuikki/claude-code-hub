@@ -6,6 +6,8 @@ import type {
   AnthropicAdaptiveThinkingModelMatchMode,
   AnthropicMaxTokensPreference,
   AnthropicThinkingBudgetPreference,
+  CodexCompactionV2Capability,
+  CodexImageGenerationPreference,
   CodexParallelToolCallsPreference,
   CodexReasoningEffortPreference,
   CodexReasoningSummaryPreference,
@@ -67,7 +69,9 @@ export interface RoutingState {
   codexReasoningSummaryPreference: CodexReasoningSummaryPreference;
   codexTextVerbosityPreference: CodexTextVerbosityPreference;
   codexParallelToolCallsPreference: CodexParallelToolCallsPreference;
+  codexImageGenerationPreference: CodexImageGenerationPreference;
   codexServiceTierPreference: CodexServiceTierPreference;
+  codexCompactionV2Capability: CodexCompactionV2Capability;
   // Anthropic-specific
   anthropicMaxTokensPreference: AnthropicMaxTokensPreference;
   anthropicThinkingBudgetPreference: AnthropicThinkingBudgetPreference;
@@ -163,7 +167,9 @@ export type ProviderFormAction =
   | { type: "SET_CODEX_REASONING_SUMMARY"; payload: CodexReasoningSummaryPreference }
   | { type: "SET_CODEX_TEXT_VERBOSITY"; payload: CodexTextVerbosityPreference }
   | { type: "SET_CODEX_PARALLEL_TOOL_CALLS"; payload: CodexParallelToolCallsPreference }
+  | { type: "SET_CODEX_IMAGE_GENERATION"; payload: CodexImageGenerationPreference }
   | { type: "SET_CODEX_SERVICE_TIER"; payload: CodexServiceTierPreference }
+  | { type: "SET_CODEX_COMPACTION_V2_CAPABILITY"; payload: CodexCompactionV2Capability }
   | { type: "SET_DEEPSEEK_REASONING_EFFORT"; payload: DeepSeekReasoningEffortPreference }
   | { type: "SET_ANTHROPIC_MAX_TOKENS"; payload: AnthropicMaxTokensPreference }
   | { type: "SET_ANTHROPIC_THINKING_BUDGET"; payload: AnthropicThinkingBudgetPreference }

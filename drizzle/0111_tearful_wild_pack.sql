@@ -1,0 +1,1 @@
+ALTER TABLE "providers" ADD COLUMN "codex_compaction_v2_capability" varchar(20) DEFAULT 'legacy_adapter' NOT NULL;

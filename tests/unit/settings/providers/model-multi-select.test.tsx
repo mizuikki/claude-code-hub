@@ -394,4 +394,55 @@ describe("ModelMultiSelect", () => {
 
     unmount();
   });
+
+  test("falls back to litellmProvider when vendor is an empty string", async () => {
+    const messages = loadMessages();
+
+    modelPricesActionMocks.getAvailableModelCatalog.mockResolvedValueOnce([
+      {
+        modelName: "openai-empty-vendor",
+        vendor: "",
+        litellmProvider: "openai",
+        updatedAt: "2026-04-07T12:00:00.000Z",
+      },
+      {
+        modelName: "anthropic-model",
+        vendor: "anthropic",
+        litellmProvider: "anthropic",
+        updatedAt: "2026-04-06T12:00:00.000Z",
+      },
+    ]);
+
+    const { unmount } = render(
+      <NextIntlClientProvider locale="en" messages={messages} timeZone="UTC">
+        <ModelMultiSelect providerType="claude" selectedModels={[]} onChange={() => {}} />
+      </NextIntlClientProvider>
+    );
+
+    await openPicker();
+
+    const providerFilter = document.querySelector(
+      '[data-testid="provider-filter-select"]'
+    ) as HTMLSelectElement | null;
+
+    expect(
+      Array.from(providerFilter?.options ?? []).some((option) => option.value === "openai")
+    ).toBe(true);
+
+    await act(async () => {
+      if (providerFilter) {
+        providerFilter.value = "openai";
+        providerFilter.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+    await flushTicks(2);
+
+    const filteredItems = Array.from(
+      document.querySelectorAll('[data-model-group="available"] [data-slot="command-item"]')
+    ).map((element) => element.textContent?.trim() || "");
+    expect(filteredItems.some((text) => text.includes("openai-empty-vendor"))).toBe(true);
+    expect(filteredItems.some((text) => text.includes("anthropic-model"))).toBe(false);
+
+    unmount();
+  });
 });

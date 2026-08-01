@@ -1,6 +1,12 @@
-ALTER TABLE "message_request" ADD COLUMN "reasoning_output_tokens" bigint;--> statement-breakpoint
-ALTER TABLE "usage_ledger" ADD COLUMN "reasoning_output_tokens" bigint;--> statement-breakpoint
--- Mirror of src/lib/ledger-backfill/trigger.sql.
+ALTER TABLE "error_rules" ADD COLUMN IF NOT EXISTS "retry_on_match" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "message_request" ADD COLUMN IF NOT EXISTS "reasoning_output_tokens" bigint;--> statement-breakpoint
+ALTER TABLE "providers" ADD COLUMN IF NOT EXISTS "deepseek_reasoning_effort_preference" varchar(20);--> statement-breakpoint
+ALTER TABLE "usage_ledger" ADD COLUMN IF NOT EXISTS "reasoning_output_tokens" bigint;--> statement-breakpoint
+UPDATE "usage_ledger" AS ul
+SET "reasoning_output_tokens" = mr."reasoning_output_tokens"
+FROM "message_request" AS mr
+WHERE ul."request_id" = mr."id"
+  AND ul."reasoning_output_tokens" IS DISTINCT FROM mr."reasoning_output_tokens";--> statement-breakpoint
 CREATE OR REPLACE FUNCTION fn_upsert_usage_ledger()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -16,8 +22,6 @@ BEGIN
   );
 
   IF NEW.blocked_by = 'warmup' THEN
-    -- If a ledger row already exists (row was originally non-warmup), mark it as warmup
-    -- and sync the latest actual_response_model so audit stays consistent across tables.
     UPDATE usage_ledger
     SET blocked_by = 'warmup',
         success_rate_outcome = v_success_rate_outcome,
@@ -100,8 +104,6 @@ BEGIN
     duration_ms = EXCLUDED.duration_ms,
     ttfb_ms = EXCLUDED.ttfb_ms,
     client_ip = EXCLUDED.client_ip;
-    -- created_at deliberately NOT updated on conflict: it represents the
-    -- original insert time of the ledger row, which is immutable by design.
 
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN

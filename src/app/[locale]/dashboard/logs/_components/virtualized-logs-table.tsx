@@ -73,6 +73,7 @@ export interface VirtualizedLogsTableFilters {
   statusCode?: number;
   excludeStatusCode200?: boolean;
   model?: string;
+  actualResponseModelMismatch?: boolean;
   endpoint?: string;
   includeNonBillingEndpoints?: boolean;
   minRetryCount?: number;
@@ -1488,7 +1489,12 @@ export function VirtualizedLogsTable({
                       </div>
                       {isFullscreenLayout ? null : (
                         <div className="truncate text-[11px] text-muted-foreground">
-                          <RelativeTime date={log.createdAt} fallback="-" format="short" />
+                          <RelativeTime
+                            date={log.createdAt}
+                            fallback="-"
+                            format="short"
+                            timeZone={serverTimeZone}
+                          />
                         </div>
                       )}
                     </div>

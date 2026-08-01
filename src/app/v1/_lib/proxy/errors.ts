@@ -1107,6 +1107,82 @@ export function isSSLCertificateError(error: unknown): boolean {
   return false;
 }
 
+/**
+ * Codes that usually mean the pooled TCP/TLS connection is no longer reusable.
+ * On these errors the AgentPool entry should be marked unhealthy so the next
+ * attempt opens a fresh connection instead of reusing a half-closed socket.
+ */
+const POOLED_CONNECTION_TRANSPORT_ERROR_CODES = new Set([
+  "ECONNRESET",
+  "UND_ERR_SOCKET",
+  "EPIPE",
+  "ERR_STREAM_PREMATURE_CLOSE",
+  "UND_ERR_DESTROYED",
+  "UND_ERR_CLOSED",
+]);
+
+const POOLED_CONNECTION_TRANSPORT_ERROR_NAMES = new Set([
+  "SocketError",
+  "ClientDestroyedError",
+  "ClientClosedError",
+]);
+
+const POOLED_CONNECTION_TRANSPORT_MESSAGE_SIGNATURES = ["other side closed"];
+
+/**
+ * Detect transport failures that should invalidate a pooled undici Agent.
+ *
+ * Unlike {@link isTransportError}, this is intentionally narrower: DNS/timeouts
+ * do not necessarily imply a poisoned keep-alive socket, while ECONNRESET /
+ * UND_ERR_SOCKET / premature close commonly do.
+ */
+export function isPooledConnectionTransportError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  if (POOLED_CONNECTION_TRANSPORT_ERROR_NAMES.has(error.name)) {
+    return true;
+  }
+
+  const code =
+    (error as NodeJS.ErrnoException).code ??
+    (error as Error & { cause?: { code?: string } }).cause?.code;
+  if (code && POOLED_CONNECTION_TRANSPORT_ERROR_CODES.has(code)) {
+    return true;
+  }
+
+  const message = error.message.toLowerCase();
+  if (POOLED_CONNECTION_TRANSPORT_MESSAGE_SIGNATURES.some((sig) => message.includes(sig))) {
+    return true;
+  }
+
+  if (error.cause instanceof Error) {
+    return isPooledConnectionTransportError(error.cause);
+  }
+
+  return false;
+}
+
+/**
+ * Backoff before retrying the same provider after a SYSTEM_ERROR.
+ *
+ * `failedAttemptNumber` is the attempt that just failed (1-based).
+ * Schedule is deterministic (no jitter) so unit tests remain stable:
+ * - after attempt 1: 250ms
+ * - after attempt 2: 500ms
+ * - after attempt 3+: 1000ms (capped)
+ */
+export function getSystemErrorRetryDelayMs(failedAttemptNumber: number): number {
+  if (!Number.isFinite(failedAttemptNumber) || failedAttemptNumber <= 1) {
+    return 250;
+  }
+  if (failedAttemptNumber === 2) {
+    return 500;
+  }
+  return 1000;
+}
+
 const SENSITIVE_HEADERS = new Set([
   "authorization",
   "proxy-authorization", // 代理认证

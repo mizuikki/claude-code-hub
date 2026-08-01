@@ -2,6 +2,13 @@ import { z } from "zod";
 import { getSession } from "@/lib/auth";
 import { invalidateSystemSettingsCache } from "@/lib/config";
 import { logger } from "@/lib/logger";
+import { publishCurrentPublicStatusConfigProjection } from "@/lib/public-status/config-publisher";
+import { schedulePublicStatusRebuild } from "@/lib/public-status/rebuild-hints";
+import {
+  invalidateAllLeaderboardCaches,
+  invalidateAllOverviewCaches,
+  invalidateAllStatisticsCaches,
+} from "@/lib/redis";
 import { UpdateSystemSettingsSchema } from "@/lib/validation/schemas";
 import { getSystemSettings, updateSystemSettings } from "@/repository/system-config";
 
@@ -51,6 +58,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
+    const before = await getSystemSettings();
 
     // 验证请求数据
     const validated = UpdateSystemSettingsSchema.parse(body);
@@ -62,6 +70,8 @@ export async function POST(req: Request) {
       currencyDisplay: validated.currencyDisplay,
       billingModelSource: validated.billingModelSource,
       codexPriorityBillingSource: validated.codexPriorityBillingSource,
+      billNonSuccessfulRequests: validated.billNonSuccessfulRequests,
+      billHedgeLosers: validated.billHedgeLosers,
       timezone: validated.timezone,
       enableAutoCleanup: validated.enableAutoCleanup,
       cleanupRetentionDays: validated.cleanupRetentionDays,
@@ -76,8 +86,13 @@ export async function POST(req: Request) {
       interceptAnthropicWarmupRequests: validated.interceptAnthropicWarmupRequests,
       enableThinkingSignatureRectifier: validated.enableThinkingSignatureRectifier,
       enableThinkingBudgetRectifier: validated.enableThinkingBudgetRectifier,
+      enableThinkingEffortConflictRectifier: validated.enableThinkingEffortConflictRectifier,
+      enableGeminiFunctionIdRectifier: validated.enableGeminiFunctionIdRectifier,
       enableBillingHeaderRectifier: validated.enableBillingHeaderRectifier,
       enableResponseInputRectifier: validated.enableResponseInputRectifier,
+      allowNonConversationEndpointProviderFallback:
+        validated.allowNonConversationEndpointProviderFallback,
+      fakeStreamingWhitelist: validated.fakeStreamingWhitelist,
       enableCodexSessionIdCompletion: validated.enableCodexSessionIdCompletion,
       enableClaudeMetadataUserIdInjection: validated.enableClaudeMetadataUserIdInjection,
       enableResponseFixer: validated.enableResponseFixer,
@@ -88,6 +103,10 @@ export async function POST(req: Request) {
       quotaLeasePercentWeekly: validated.quotaLeasePercentWeekly,
       quotaLeasePercentMonthly: validated.quotaLeasePercentMonthly,
       quotaLeaseCapUsd: validated.quotaLeaseCapUsd,
+      publicStatusWindowHours: validated.publicStatusWindowHours,
+      publicStatusAggregationIntervalMinutes: validated.publicStatusAggregationIntervalMinutes,
+      ipExtractionConfig: validated.ipExtractionConfig,
+      ipGeoLookupEnabled: validated.ipGeoLookupEnabled,
     });
 
     logger.info("系统配置已更新", {
@@ -99,6 +118,50 @@ export async function POST(req: Request) {
       "@/app/v1/_lib/proxy/provider-selector-settings-cache"
     );
     invalidateProviderSelectorSystemSettingsCache();
+    if (validated.timezone !== undefined && validated.timezone !== before?.timezone) {
+      await Promise.all([
+        invalidateAllOverviewCaches(),
+        invalidateAllStatisticsCaches(),
+        invalidateAllLeaderboardCaches(),
+      ]).catch((error) => {
+        logger.warn("[SystemSettings] Failed to invalidate timezone-sensitive dashboard caches", {
+          error,
+        });
+      });
+    }
+
+    const shouldRepublishPublicStatusProjection =
+      validated.siteTitle !== undefined ||
+      validated.timezone !== undefined ||
+      validated.publicStatusWindowHours !== undefined ||
+      validated.publicStatusAggregationIntervalMinutes !== undefined;
+
+    if (shouldRepublishPublicStatusProjection) {
+      try {
+        const publishResult = await publishCurrentPublicStatusConfigProjection({
+          reason: "admin-system-config-api",
+        });
+
+        if (!publishResult.written) {
+          logger.warn(
+            "[SystemSettings] Saved DB truth but failed to publish public-status Redis projection"
+          );
+        } else {
+          await schedulePublicStatusRebuild({
+            intervalMinutes:
+              validated.publicStatusAggregationIntervalMinutes ??
+              updated.publicStatusAggregationIntervalMinutes,
+            rangeHours: validated.publicStatusWindowHours ?? updated.publicStatusWindowHours,
+            reason: "system-settings-updated",
+          });
+        }
+      } catch (error) {
+        logger.warn(
+          "[SystemSettings] Saved DB truth but failed to publish public-status Redis projection",
+          error
+        );
+      }
+    }
 
     return Response.json(updated);
   } catch (error) {

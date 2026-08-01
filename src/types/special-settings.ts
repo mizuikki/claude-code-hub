@@ -20,6 +20,7 @@ export type SpecialSetting =
   | AnthropicCacheTtlHeaderOverrideSpecialSetting
   | AnthropicContext1mHeaderOverrideSpecialSetting
   | LongContextPricingSpecialSetting
+  | GeminiFunctionIdRectifierSpecialSetting
   | GeminiGoogleSearchOverrideSpecialSetting
   | PricingResolutionSpecialSetting
   | CodexServiceTierResultSpecialSetting
@@ -253,6 +254,25 @@ export type ThinkingBudgetRectifierSpecialSetting = {
 };
 
 /**
+ * Gemini function id 整流器审计
+ *
+ * 用于记录：Vertex AI 严格 schema 拒绝 functionCall/functionResponse 中的 `id` 字段时，
+ * 系统剥离该字段并对同供应商重试一次的行为。
+ */
+export type GeminiFunctionIdRectifierSpecialSetting = {
+  type: "gemini_function_id_rectifier";
+  scope: "request";
+  hit: boolean;
+  providerId: number | null;
+  providerName: string | null;
+  trigger: "unknown_function_id_field";
+  attemptNumber: number;
+  retryAttemptNumber: number;
+  strippedFunctionCallIds: number;
+  strippedFunctionResponseIds: number;
+};
+
+/**
  * Gemini Google Search 覆写审计
  *
  * 用于记录：当 Gemini 类型供应商配置了 googleSearch 偏好时，
@@ -280,6 +300,7 @@ export type PricingResolutionSpecialSetting = {
     | "local_manual"
     | "cloud_exact"
     | "cloud_model_fallback"
+    | "cloud_official"
     | "priority_fallback"
     | "single_provider_top_level"
     | "official_fallback";

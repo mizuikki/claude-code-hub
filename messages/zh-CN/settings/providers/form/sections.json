@@ -161,6 +161,11 @@
       }
     },
     "codexOverrides": {
+      "compactionV2": {
+        "help": "原生 v2 会直接透传标准压缩事件且不执行输出修正；旧协议适配会转换带密文的 compaction_summary；不支持的提供商不会参与压缩 v2 路由。",
+        "label": "Responses 压缩 v2 能力",
+        "options": { "native_v2": "原生 v2", "legacy_adapter": "旧协议适配", "unsupported": "不支持" }
+      },
       "title": "Codex 参数覆写",
       "desc": "在供应商级别覆写 Codex (Responses API) 请求参数",
       "reasoningEffort": {
@@ -198,6 +203,15 @@
       "parallelToolCalls": {
         "label": "并行工具调用覆写",
         "help": "控制是否允许并行 tool calls。关闭可能降低工具调用并发能力；'跟随客户端'不改写 parallel_tool_calls。",
+        "options": {
+          "inherit": "不覆写（跟随客户端）",
+          "true": "强制开启",
+          "false": "强制关闭"
+        }
+      },
+      "imageGeneration": {
+        "label": "图像生成工具覆写",
+        "help": "OpenAI 官方将 image_generation 定义为 Responses 内建工具，而不是顶层布尔参数。强制开启会注入 type=image_generation 工具；强制关闭会移除该工具，并同步清理与它冲突的 tool_choice。",
         "options": {
           "inherit": "不覆写（跟随客户端）",
           "true": "强制开启",

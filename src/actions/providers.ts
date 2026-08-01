@@ -90,6 +90,8 @@ import type {
   AnthropicAdaptiveThinkingConfig,
   AnthropicMaxTokensPreference,
   AnthropicThinkingBudgetPreference,
+  CodexCompactionV2Capability,
+  CodexImageGenerationPreference,
   CodexParallelToolCallsPreference,
   CodexReasoningEffortPreference,
   CodexReasoningSummaryPreference,
@@ -371,7 +373,9 @@ export async function getProviders(): Promise<ProviderDisplay[]> {
         codexReasoningSummaryPreference: provider.codexReasoningSummaryPreference,
         codexTextVerbosityPreference: provider.codexTextVerbosityPreference,
         codexParallelToolCallsPreference: provider.codexParallelToolCallsPreference,
+        codexImageGenerationPreference: provider.codexImageGenerationPreference,
         codexServiceTierPreference: provider.codexServiceTierPreference ?? null,
+        codexCompactionV2Capability: provider.codexCompactionV2Capability,
         anthropicMaxTokensPreference: provider.anthropicMaxTokensPreference,
         anthropicThinkingBudgetPreference: provider.anthropicThinkingBudgetPreference,
         anthropicAdaptiveThinking: provider.anthropicAdaptiveThinking,
@@ -556,7 +560,9 @@ export async function addProvider(data: {
   codex_reasoning_summary_preference?: CodexReasoningSummaryPreference | null;
   codex_text_verbosity_preference?: CodexTextVerbosityPreference | null;
   codex_parallel_tool_calls_preference?: CodexParallelToolCallsPreference | null;
+  codex_image_generation_preference?: CodexImageGenerationPreference | null;
   codex_service_tier_preference?: CodexServiceTierPreference | null;
+  codex_compaction_v2_capability?: CodexCompactionV2Capability | null;
   deepseek_reasoning_effort_preference?: DeepSeekReasoningEffortPreference | null;
   anthropic_max_tokens_preference?: AnthropicMaxTokensPreference | null;
   anthropic_thinking_budget_preference?: AnthropicThinkingBudgetPreference | null;
@@ -654,7 +660,9 @@ export async function addProvider(data: {
       codex_text_verbosity_preference: validated.codex_text_verbosity_preference ?? "inherit",
       codex_parallel_tool_calls_preference:
         validated.codex_parallel_tool_calls_preference ?? "inherit",
+      codex_image_generation_preference: validated.codex_image_generation_preference,
       codex_service_tier_preference: validated.codex_service_tier_preference ?? "inherit",
+      codex_compaction_v2_capability: validated.codex_compaction_v2_capability ?? "legacy_adapter",
       deepseek_reasoning_effort_preference:
         validated.deepseek_reasoning_effort_preference ?? "inherit",
       website_url: validated.website_url ?? null,
@@ -774,7 +782,9 @@ export async function editProvider(
     codex_reasoning_summary_preference?: CodexReasoningSummaryPreference | null;
     codex_text_verbosity_preference?: CodexTextVerbosityPreference | null;
     codex_parallel_tool_calls_preference?: CodexParallelToolCallsPreference | null;
+    codex_image_generation_preference?: CodexImageGenerationPreference | null;
     codex_service_tier_preference?: CodexServiceTierPreference | null;
+    codex_compaction_v2_capability?: CodexCompactionV2Capability | null;
     anthropic_max_tokens_preference?: AnthropicMaxTokensPreference | null;
     anthropic_thinking_budget_preference?: AnthropicThinkingBudgetPreference | null;
     anthropic_adaptive_thinking?: AnthropicAdaptiveThinkingConfig | null;
@@ -1485,6 +1495,7 @@ const SINGLE_EDIT_PREIMAGE_FIELD_TO_PROVIDER_KEY: Record<string, keyof Provider>
   codex_reasoning_summary_preference: "codexReasoningSummaryPreference",
   codex_text_verbosity_preference: "codexTextVerbosityPreference",
   codex_parallel_tool_calls_preference: "codexParallelToolCallsPreference",
+  codex_image_generation_preference: "codexImageGenerationPreference",
   codex_service_tier_preference: "codexServiceTierPreference",
   deepseek_reasoning_effort_preference: "deepseekReasoningEffortPreference",
   anthropic_max_tokens_preference: "anthropicMaxTokensPreference",
@@ -1665,6 +1676,9 @@ function mapApplyUpdatesToRepositoryFormat(
   if (applyUpdates.codex_parallel_tool_calls_preference !== undefined) {
     result.codexParallelToolCallsPreference = applyUpdates.codex_parallel_tool_calls_preference;
   }
+  if (applyUpdates.codex_image_generation_preference !== undefined) {
+    result.codexImageGenerationPreference = applyUpdates.codex_image_generation_preference;
+  }
   if (applyUpdates.codex_service_tier_preference !== undefined) {
     result.codexServiceTierPreference = applyUpdates.codex_service_tier_preference;
   }
@@ -1770,6 +1784,7 @@ const PATCH_FIELD_TO_PROVIDER_KEY: Record<ProviderBatchPatchField, keyof Provide
   codex_reasoning_summary_preference: "codexReasoningSummaryPreference",
   codex_text_verbosity_preference: "codexTextVerbosityPreference",
   codex_parallel_tool_calls_preference: "codexParallelToolCallsPreference",
+  codex_image_generation_preference: "codexImageGenerationPreference",
   codex_service_tier_preference: "codexServiceTierPreference",
   deepseek_reasoning_effort_preference: "deepseekReasoningEffortPreference",
   anthropic_max_tokens_preference: "anthropicMaxTokensPreference",
@@ -1806,6 +1821,7 @@ const PATCH_FIELD_CLEAR_VALUE: Partial<Record<ProviderBatchPatchField, unknown>>
   codex_reasoning_summary_preference: "inherit",
   codex_text_verbosity_preference: "inherit",
   codex_parallel_tool_calls_preference: "inherit",
+  codex_image_generation_preference: "inherit",
   codex_service_tier_preference: "inherit",
   deepseek_reasoning_effort_preference: "inherit",
   anthropic_max_tokens_preference: "inherit",
@@ -1825,6 +1841,7 @@ const CODEX_ONLY_FIELDS: ReadonlySet<ProviderBatchPatchField> = new Set([
   "codex_reasoning_summary_preference",
   "codex_text_verbosity_preference",
   "codex_parallel_tool_calls_preference",
+  "codex_image_generation_preference",
   "codex_service_tier_preference",
 ]);
 
@@ -1866,6 +1883,7 @@ const CODEX_ONLY_REPO_KEYS: ReadonlySet<keyof BatchProviderUpdates> = new Set([
   "codexReasoningSummaryPreference",
   "codexTextVerbosityPreference",
   "codexParallelToolCallsPreference",
+  "codexImageGenerationPreference",
   "codexServiceTierPreference",
 ]);
 
@@ -2410,6 +2428,7 @@ export interface BatchUpdateProvidersParams {
     daily_reset_mode?: "fixed" | "rolling";
     daily_reset_time?: string;
     codex_service_tier_preference?: CodexServiceTierPreference | null;
+    codex_image_generation_preference?: CodexImageGenerationPreference | null;
     anthropic_thinking_budget_preference?: AnthropicThinkingBudgetPreference | null;
     anthropic_adaptive_thinking?: AnthropicAdaptiveThinkingConfig | null;
   };
@@ -2507,6 +2526,9 @@ export async function batchUpdateProviders(
     }
     if (updates.daily_reset_time !== undefined) {
       repositoryUpdates.dailyResetTime = updates.daily_reset_time;
+    }
+    if (updates.codex_image_generation_preference !== undefined) {
+      repositoryUpdates.codexImageGenerationPreference = updates.codex_image_generation_preference;
     }
     if (updates.codex_service_tier_preference !== undefined) {
       repositoryUpdates.codexServiceTierPreference = updates.codex_service_tier_preference;
