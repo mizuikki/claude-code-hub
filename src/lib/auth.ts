@@ -226,6 +226,7 @@ export async function validateKey(
       limitMonthlyUsd: null,
       limitConcurrentSessions: 0,
       cacheTtlPreference: null,
+      sessionFailbackModeOverride: "inherit",
       createdAt: now,
       updatedAt: now,
     };

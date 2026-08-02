@@ -105,6 +105,7 @@
   "vendorUpdateFailed": "Failed to update vendor",
   "vendorDeleteSuccess": "Vendor deleted successfully",
   "vendorDeleteFailed": "Failed to delete vendor",
+  "migrationSafetyPolicyOwned": "Migration safety: controlled by request endpoint policy",
   "endpointStatus": {
     "viewDetails": "View Details ({count})",
     "activeEndpoints": "Active Endpoints",

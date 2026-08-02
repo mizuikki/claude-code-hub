@@ -1084,6 +1084,66 @@ export class RateLimitService {
     }
   }
 
+  /** Records recovery probe cost against provider quotas only. */
+  static async trackProviderRecoveryProbeCost(
+    providerId: number,
+    cost: number,
+    options?: {
+      provider5hResetMode?: DailyResetMode;
+      providerResetTime?: string;
+      providerResetMode?: DailyResetMode;
+      createdAtMs?: number;
+    }
+  ): Promise<void> {
+    if (!RateLimitService.redis || cost <= 0) return;
+    const now = options?.createdAtMs ?? Date.now();
+    const mode5h = options?.provider5hResetMode ?? "rolling";
+    const dailyMode = options?.providerResetMode ?? "fixed";
+    const dailyReset = RateLimitService.resolveDailyReset(options?.providerResetTime);
+    if (mode5h === "rolling") {
+      await RateLimitService.redis.eval(
+        TRACK_COST_5H_ROLLING_WINDOW,
+        1,
+        RateLimitService.get5hCostKey("provider", providerId, "rolling"),
+        cost.toString(),
+        now.toString(),
+        String(5 * 60 * 60 * 1_000),
+        `probe:${now}`
+      );
+    } else {
+      await RateLimitService.trackFixedCostWindow(
+        RateLimitService.get5hCostKey("provider", providerId, "fixed"),
+        cost,
+        5 * 3_600
+      );
+    }
+    if (dailyMode === "rolling") {
+      await RateLimitService.redis.eval(
+        TRACK_COST_DAILY_ROLLING_WINDOW,
+        1,
+        `provider:${providerId}:cost_daily_rolling`,
+        cost.toString(),
+        now.toString(),
+        String(24 * 60 * 60 * 1_000),
+        `probe:${now}`
+      );
+    }
+    const pipeline = RateLimitService.redis.pipeline();
+    if (dailyMode === "fixed") {
+      pipeline.incrbyfloat(`provider:${providerId}:cost_daily_${dailyReset.suffix}`, cost);
+      pipeline.expire(
+        `provider:${providerId}:cost_daily_${dailyReset.suffix}`,
+        await getTTLForPeriodWithMode("daily", dailyReset.normalized, dailyMode)
+      );
+    }
+    pipeline.incrbyfloat(`provider:${providerId}:cost_weekly`, cost);
+    pipeline.expire(`provider:${providerId}:cost_weekly`, await getTTLForPeriod("weekly"));
+    pipeline.incrbyfloat(`provider:${providerId}:cost_monthly`, cost);
+    pipeline.expire(`provider:${providerId}:cost_monthly`, await getTTLForPeriod("monthly"));
+    pipeline.del(`total_cost:provider:${providerId}:none`);
+    await pipeline.exec();
+  }
+
   /**
    * 获取当前消费（用于响应头和前端展示）
    * 优先使用 Redis，失败时降级到数据库查询

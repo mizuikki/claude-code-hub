@@ -84,6 +84,7 @@ import { invalidateProviderQueries } from "./invalidate-provider-queries";
 import { PriorityEditPopover } from "./priority-edit-popover";
 import { ProviderEndpointHover } from "./provider-endpoint-hover";
 import { ProviderFormDialogContent } from "./provider-form-dialog-content";
+import { ProviderRecoveryDialog } from "./provider-recovery-dialog";
 
 interface ProviderRichListItemProps {
   provider: ProviderDisplay;
@@ -965,6 +966,7 @@ function ProviderRichListItemInner({
 
         {/* Desktop: action buttons */}
         <div className="hidden md:flex items-center gap-1 flex-shrink-0">
+          {canEdit && <ProviderRecoveryDialog providerId={provider.id} />}
           {canEdit && (
             <Switch
               checked={provider.isEnabled}

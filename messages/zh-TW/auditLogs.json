@@ -75,6 +75,17 @@
       "sync_litellm": "同步雲端價格表",
       "upsert": "更新模型價格",
       "delete": "刪除模型價格"
+    },
+    "recovery": {
+      "probe": "執行恢復探測",
+      "pause": "暫停恢復自動化",
+      "resume": "恢復恢復自動化",
+      "reset": "安全重新啟動恢復流程",
+      "force_open": "強制開啟恢復狀態",
+      "force_close": "強制關閉恢復狀態",
+      "configuration": {
+        "update": "更新恢復設定"
+      }
     }
   },
   "detail": {

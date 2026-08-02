@@ -41,6 +41,7 @@ export function AddKeyForm({ userId, user, isAdmin = false, onSuccess }: AddKeyF
   );
   const tUI = useTranslations("ui.tagInput");
   const tCommon = useTranslations("common");
+  const tRecovery = useTranslations("settings.recovery");
   const tErrors = useTranslations("errors");
 
   // Load provider group suggestions
@@ -60,6 +61,7 @@ export function AddKeyForm({ userId, user, isAdmin = false, onSuccess }: AddKeyF
       canLoginWebUi: false,
       providerGroup: PROVIDER_GROUP.DEFAULT,
       cacheTtlPreference: "inherit",
+      sessionFailbackModeOverride: "inherit",
       limit5hUsd: null,
       limit5hResetMode: "rolling" as const,
       limitDailyUsd: null,
@@ -91,6 +93,7 @@ export function AddKeyForm({ userId, user, isAdmin = false, onSuccess }: AddKeyF
           limitTotalUsd: data.limitTotalUsd,
           limitConcurrentSessions: data.limitConcurrentSessions,
           cacheTtlPreference: data.cacheTtlPreference,
+          ...(isAdmin ? { sessionFailbackModeOverride: data.sessionFailbackModeOverride } : {}),
           providerGroup: data.providerGroup || PROVIDER_GROUP.DEFAULT,
         };
         // 非管理员走会话定向的自助端点，目标用户由服务端会话决定（U03：
@@ -243,6 +246,30 @@ export function AddKeyForm({ userId, user, isAdmin = false, onSuccess }: AddKeyF
         </Select>
         <p className="text-xs text-muted-foreground">{t("cacheTtl.description")}</p>
       </div>
+
+      {isAdmin && (
+        <div className="space-y-2">
+          <Label>{tRecovery("failbackMode")}</Label>
+          <Select
+            value={form.values.sessionFailbackModeOverride}
+            onValueChange={(value) =>
+              form.setValue(
+                "sessionFailbackModeOverride",
+                value as "inherit" | "sticky" | "safe_auto"
+              )
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="inherit">{tRecovery("authorities.legacy")}</SelectItem>
+              <SelectItem value="sticky">{tRecovery("sticky")}</SelectItem>
+              <SelectItem value="safe_auto">{tRecovery("safeAuto")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <FormGrid columns={2}>
         <NumberField

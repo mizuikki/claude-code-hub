@@ -86,6 +86,7 @@ export function toKey(dbKey: any): Key {
     limitConcurrentSessions: dbKey?.limitConcurrentSessions ?? 0,
     providerGroup: dbKey?.providerGroup ?? null,
     cacheTtlPreference: dbKey?.cacheTtlPreference ?? null,
+    sessionFailbackModeOverride: dbKey?.sessionFailbackModeOverride ?? "inherit",
     createdAt: dbKey?.createdAt ? new Date(dbKey.createdAt) : new Date(),
     updatedAt: dbKey?.updatedAt ? new Date(dbKey.updatedAt) : new Date(),
   };
@@ -131,6 +132,8 @@ export function toProvider(dbProvider: any): Provider {
     circuitBreakerFailureThreshold: dbProvider?.circuitBreakerFailureThreshold ?? 5,
     circuitBreakerOpenDuration: dbProvider?.circuitBreakerOpenDuration ?? 1800000,
     circuitBreakerHalfOpenSuccessThreshold: dbProvider?.circuitBreakerHalfOpenSuccessThreshold ?? 2,
+    recoverySettings: dbProvider?.recoverySettings ?? null,
+    recoveryProbeBudgets: dbProvider?.recoveryProbeBudgets ?? null,
     proxyUrl: dbProvider?.proxyUrl ?? null,
     proxyFallbackToDirect: dbProvider?.proxyFallbackToDirect ?? false,
     customHeaders: dbProvider?.customHeaders ?? null,

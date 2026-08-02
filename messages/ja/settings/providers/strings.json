@@ -105,6 +105,7 @@
   "vendorUpdateFailed": "ベンダーの更新に失敗しました",
   "vendorDeleteSuccess": "ベンダーを削除しました",
   "vendorDeleteFailed": "ベンダーの削除に失敗しました",
+  "migrationSafetyPolicyOwned": "移行の安全性: リクエストエンドポイントポリシーで管理",
   "endpointStatus": {
     "viewDetails": "詳細を見る（{count}）",
     "activeEndpoints": "有効なエンドポイント",

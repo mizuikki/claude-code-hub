@@ -38,6 +38,9 @@ const usageLogs = await vi.importActual<typeof import("@/lib/api-client/v1/actio
 const keys = await vi.importActual<typeof import("@/lib/api-client/v1/actions/keys")>(
   "@/lib/api-client/v1/actions/keys"
 );
+const recovery = await vi.importActual<typeof import("@/lib/api-client/v1/actions/recovery")>(
+  "@/lib/api-client/v1/actions/recovery"
+);
 
 describe("v1 action compatibility client", () => {
   beforeEach(() => {
@@ -605,5 +608,47 @@ describe("v1 action compatibility client", () => {
     const result = await usageLogs.downloadUsageLogsExport("missing");
 
     expect(result.ok).toBe(false);
+  });
+
+  test("maps recovery diagnostics to their scoped v1 resources", async () => {
+    getMock.mockResolvedValue({ state: null });
+
+    await recovery.getProviderRecoveryDiagnostics(7);
+    await recovery.getEndpointRecoveryDiagnostics(7, 11);
+    await recovery.getVendorTypeRecoveryDiagnostics(3, "openai/compatible");
+    await recovery.getCapabilityRecoveryDiagnostics(7, "claude 4", "web/socket");
+
+    expect(getMock).toHaveBeenNthCalledWith(1, "/api/v1/recovery/providers/7");
+    expect(getMock).toHaveBeenNthCalledWith(2, "/api/v1/recovery/providers/7/endpoints/11");
+    expect(getMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/v1/recovery/vendors/3/types/openai%2Fcompatible"
+    );
+    expect(getMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/v1/recovery/providers/7/capabilities/claude%204/web%2Fsocket"
+    );
+  });
+
+  test("maps recovery operations and configuration updates to v1 mutations", async () => {
+    const operation = { expectedEpoch: 4, reason: "operator verification" };
+    const globalConfiguration = { enabled: true };
+    const providerConfiguration = { halfOpenMaxConcurrent: 2 };
+
+    await recovery.operateProviderRecovery(7, "probe", operation);
+    await recovery.updateRecoveryConfiguration(globalConfiguration);
+    await recovery.updateProviderRecoveryConfiguration(7, providerConfiguration);
+
+    expect(postMock).toHaveBeenCalledWith("/api/v1/recovery/providers/7/actions/probe", operation);
+    expect(patchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/recovery/configuration",
+      globalConfiguration
+    );
+    expect(patchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/recovery/providers/7/configuration",
+      providerConfiguration
+    );
   });
 });

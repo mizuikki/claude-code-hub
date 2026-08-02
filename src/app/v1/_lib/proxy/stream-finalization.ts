@@ -1,3 +1,4 @@
+import type { AttemptIdentity } from "@/lib/recovery/contracts";
 import type { ProxySession } from "./session";
 
 /**
@@ -21,6 +22,7 @@ export type DeferredStreamingFinalization = {
   providerName: string;
   providerPriority: number;
   attemptNumber: number;
+  recoveryIdentity: AttemptIdentity;
   totalProvidersAttempted: number;
   isFirstAttempt: boolean;
   isFailoverSuccess: boolean;

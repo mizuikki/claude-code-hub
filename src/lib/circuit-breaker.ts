@@ -16,6 +16,9 @@ import "server-only";
  */
 
 import { logger } from "@/lib/logger";
+import { createAttemptIdentity, createRequestId } from "@/lib/recovery/attempt-identity";
+import { getRecoveryCompatibilityFacade } from "@/lib/recovery/compatibility-facade";
+import type { AttemptIdentity } from "@/lib/recovery/contracts";
 import {
   type CircuitBreakerConfig,
   DEFAULT_CIRCUIT_BREAKER_CONFIG,
@@ -447,6 +450,11 @@ export async function getProviderHealthInfo(providerId: number): Promise<{
 export async function isCircuitOpen(providerId: number): Promise<boolean> {
   const health = await getOrCreateHealth(providerId);
 
+  const facade = getRecoveryCompatibilityFacade();
+  if (facade) {
+    return facade.isOpen({ kind: "provider", providerId }, health.circuitState);
+  }
+
   if (health.circuitState === "closed") {
     return false;
   }
@@ -481,12 +489,27 @@ export async function isCircuitOpen(providerId: number): Promise<boolean> {
 /**
  * 记录请求失败
  */
-export async function recordFailure(providerId: number, error: Error): Promise<void> {
+export async function recordFailure(
+  providerId: number,
+  error: Error,
+  identity?: AttemptIdentity
+): Promise<void> {
   const health = await getOrCreateHealth(providerId);
   const config = await getProviderConfigForHealth(providerId, health);
 
   if (handleDisabledCircuitBreaker(providerId, health, config)) {
     return;
+  }
+
+  const facade = getRecoveryCompatibilityFacade();
+  if (facade) {
+    const requestId = createRequestId();
+    await facade.mirrorOutcome({
+      scope: { kind: "provider", providerId },
+      disposition: "transient_failure",
+      identity: identity ?? createAttemptIdentity(requestId, 0, "primary"),
+      durationMs: 0,
+    });
   }
 
   health.failureCount++;
@@ -609,7 +632,7 @@ async function triggerCircuitBreakerAlert(
 /**
  * 记录请求成功
  */
-export async function recordSuccess(providerId: number): Promise<void> {
+export async function recordSuccess(providerId: number, identity?: AttemptIdentity): Promise<void> {
   const health = await getOrCreateHealth(providerId);
   const config = await getProviderConfigForHealth(providerId, health);
   let stateChanged = false;
@@ -667,6 +690,17 @@ export async function recordSuccess(providerId: number): Promise<void> {
   // 仅在状态变化时持久化到 Redis
   if (stateChanged) {
     persistStateToRedis(providerId, health);
+  }
+
+  const facade = getRecoveryCompatibilityFacade();
+  if (facade) {
+    const requestId = createRequestId();
+    await facade.mirrorOutcome({
+      scope: { kind: "provider", providerId },
+      disposition: "success",
+      identity: identity ?? createAttemptIdentity(requestId, 0, "primary"),
+      durationMs: 0,
+    });
   }
 }
 
@@ -907,6 +941,33 @@ export async function forceCloseCircuitState(
   });
 
   logger.info(`[CircuitBreaker] Provider ${providerId} circuit forced closed`, {
+    providerId,
+    previousState,
+    reason: options?.reason,
+  });
+}
+
+/** Conservatively export a non-healthy V2 provider scope to the legacy breaker. */
+export async function forceOpenCircuitState(
+  providerId: number,
+  options?: { reason?: string }
+): Promise<void> {
+  const health = getOrCreateHealthSync(providerId);
+  const previousState = health.circuitState;
+  health.failureCount = Math.max(1, health.failureCount);
+  health.lastFailureTime = Date.now();
+  health.circuitState = "open";
+  health.circuitOpenUntil = null;
+  health.halfOpenSuccessCount = 0;
+
+  await saveCircuitState(providerId, {
+    failureCount: health.failureCount,
+    lastFailureTime: health.lastFailureTime,
+    circuitState: "open",
+    circuitOpenUntil: null,
+    halfOpenSuccessCount: 0,
+  });
+  logger.info(`[CircuitBreaker] Provider ${providerId} circuit forced open`, {
     providerId,
     previousState,
     reason: options?.reason,

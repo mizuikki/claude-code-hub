@@ -48,6 +48,7 @@ export function DispatchSimulatorDialog({ providers }: DispatchSimulatorDialogPr
     "claude" | "openai" | "response" | "gemini" | "gemini-cli"
   >("claude");
   const [modelName, setModelName] = useState("");
+  const [sessionId, setSessionId] = useState("");
   const [selectedGroups, setSelectedGroups] = useState<string[]>(["default"]);
   const [result, setResult] = useState<DispatchSimulatorResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +88,7 @@ export function DispatchSimulatorDialog({ providers }: DispatchSimulatorDialogPr
         clientFormat,
         modelName,
         groupTags: selectedGroups,
+        sessionId: sessionId.trim() || undefined,
       });
 
       if (!response.ok) {
@@ -180,6 +182,15 @@ export function DispatchSimulatorDialog({ providers }: DispatchSimulatorDialogPr
                 ) : (
                   <p className="text-xs text-muted-foreground">{t("noGroups")}</p>
                 )}
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">{t("sessionLabel")}</p>
+                <Input
+                  value={sessionId}
+                  onChange={(event) => setSessionId(event.target.value)}
+                  placeholder={t("sessionPlaceholder")}
+                />
               </div>
 
               <div className="flex justify-end">
@@ -364,6 +375,23 @@ export function DispatchSimulatorDialog({ providers }: DispatchSimulatorDialogPr
                             result.selectedPriority === null ? t("none") : result.selectedPriority,
                         })}
                       </p>
+                      <p className="text-xs text-muted-foreground">
+                        {t("bindingDiagnostics", {
+                          authority: t(`bindingAuthorities.${result.bindingAuthority}`),
+                          mode: t(`failbackModes.${result.effectiveFailbackMode}`),
+                          cohort:
+                            result.failbackCohort === null ? t("none") : result.failbackCohort,
+                          reason: result.failbackAdmitted
+                            ? t("failbackAdmitted")
+                            : t(`failbackReasons.${result.failbackSkipReason}`),
+                        })}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {t("recoveryBucket", {
+                          bucket:
+                            result.recoveryBucket === null ? t("none") : result.recoveryBucket,
+                        })}
+                      </p>
                     </div>
                   </div>
 
@@ -410,10 +438,19 @@ export function DispatchSimulatorDialog({ providers }: DispatchSimulatorDialogPr
                                     <Badge variant="outline">
                                       {provider.weightPercent.toFixed(1)}%
                                     </Badge>
+                                    <Badge
+                                      variant={provider.recoveryAdmitted ? "default" : "secondary"}
+                                    >
+                                      {provider.recoveryAdmitted
+                                        ? t("recoveryAdmitted")
+                                        : t("recoveryExcluded")}
+                                    </Badge>
                                   </div>
                                 </div>
                                 <Progress value={provider.weightPercent} className="mt-2 h-1.5" />
-                                {provider.redirectedModel || provider.endpointStats ? (
+                                {provider.redirectedModel ||
+                                provider.endpointStats ||
+                                provider.recoveryScopes ? (
                                   <div className="mt-1.5 flex flex-wrap gap-x-3 text-[11px] text-muted-foreground">
                                     {provider.redirectedModel ? (
                                       <span>
@@ -430,6 +467,28 @@ export function DispatchSimulatorDialog({ providers }: DispatchSimulatorDialogPr
                                         })}
                                       </span>
                                     ) : null}
+                                    {provider.recoveryBasisPoints !== undefined ? (
+                                      <span>
+                                        {t("recoveryBasisPoints", {
+                                          value: provider.recoveryBasisPoints,
+                                        })}
+                                      </span>
+                                    ) : null}
+                                    {provider.recoveryScopes?.map((scope, index) => (
+                                      <span key={`${scope.kind}-${index}`}>
+                                        {t("recoveryScope", {
+                                          kind: scope.kind,
+                                          health:
+                                            scope.health === "forward_revalidation"
+                                              ? t("forwardRevalidation")
+                                              : scope.health,
+                                          bps:
+                                            scope.basisPoints === null
+                                              ? t("none")
+                                              : scope.basisPoints,
+                                        })}
+                                      </span>
+                                    ))}
                                   </div>
                                 ) : null}
                               </div>

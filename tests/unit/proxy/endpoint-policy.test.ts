@@ -27,6 +27,11 @@ describe("endpoint-policy", () => {
       bypassSpecialSettings: true,
       bypassResponseRectifier: true,
       endpointPoolStrictness: "strict",
+      recoveryEvidence: "none",
+      halfOpenEligible: false,
+      retrySafety: "never",
+      migrationSafety: "provider_bound",
+      trackSessionBinding: false,
     });
   });
 
@@ -59,6 +64,11 @@ describe("endpoint-policy", () => {
       bypassSpecialSettings: false,
       bypassResponseRectifier: false,
       endpointPoolStrictness: "inherit",
+      recoveryEvidence: "business",
+      halfOpenEligible: true,
+      retrySafety: "pre_commit_only",
+      migrationSafety: "replayable",
+      trackSessionBinding: true,
     });
   });
 

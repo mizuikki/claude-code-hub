@@ -1,5 +1,7 @@
 import type { Context } from "hono";
 import { logger } from "@/lib/logger";
+import { createAttemptIdentity, createRequestId } from "@/lib/recovery/attempt-identity";
+import type { AttemptIdentity, AttemptKind, RecoveryAuthorityMode } from "@/lib/recovery/contracts";
 import { writeLiveChain } from "@/lib/redis/live-chain-store";
 import { clientRequestsContext1m as clientRequestsContext1mHelper } from "@/lib/special-attributes";
 import {
@@ -16,8 +18,13 @@ import type { Provider, ProviderType } from "@/types/provider";
 import type { SpecialSetting } from "@/types/special-settings";
 import type { BillingModelSource, CodexPriorityBillingSource } from "@/types/system-config";
 import type { User } from "@/types/user";
+import { isWebsocketClientRequest } from "../responses-ws/eligibility";
 import { isCountTokensEndpointPath } from "./endpoint-paths";
-import { type EndpointPolicy, resolveEndpointPolicy } from "./endpoint-policy";
+import {
+  type EndpointPolicy,
+  resolveEndpointPolicy,
+  tightenEndpointRecoveryPolicy,
+} from "./endpoint-policy";
 import { ProxyError } from "./errors";
 import type { ClientFormat } from "./format-mapper";
 import {
@@ -93,6 +100,19 @@ interface RequestBodyResult {
 }
 
 export class ProxySession {
+  recoveryRequestId = createRequestId();
+  private recoveryAttempts = new Map<string, AttemptIdentity>();
+  private pendingFailbackMigration: {
+    commit: () => Promise<{ readonly code: string }>;
+    abort: () => Promise<void>;
+    markDispatched: () => void;
+  } | null = null;
+  private recoveryAttemptScopes = new Map<
+    string,
+    readonly import("@/lib/recovery/contracts").RecoveryScope[]
+  >();
+  private recoveryLayerBucket: number | null = null;
+  private recoveryAuthorityMode: RecoveryAuthorityMode = "legacy";
   readonly startTime: number;
   readonly method: string;
   requestUrl: URL; // 非 readonly，允许模型重定向修改 Gemini URL 路径
@@ -159,6 +179,85 @@ export class ProxySession {
 
   getRequiredCompactionProviderId(): number | null {
     return this.requiredCompactionProviderId;
+  }
+
+  getRecoveryAttemptIdentity(attemptNumber: number, attemptKind: AttemptKind): AttemptIdentity {
+    this.recoveryAttempts ??= new Map<string, AttemptIdentity>();
+    this.recoveryRequestId ??= createRequestId();
+    const key = `${attemptKind}:${attemptNumber}`;
+    const existing = this.recoveryAttempts.get(key);
+    if (existing) return existing;
+    const identity = createAttemptIdentity(this.recoveryRequestId, attemptNumber, attemptKind);
+    this.recoveryAttempts.set(key, identity);
+    return identity;
+  }
+
+  rotateRecoveryAttemptIdentity(attemptNumber: number, attemptKind: AttemptKind): AttemptIdentity {
+    this.recoveryAttempts ??= new Map<string, AttemptIdentity>();
+    this.recoveryRequestId ??= createRequestId();
+    const identity = createAttemptIdentity(this.recoveryRequestId, attemptNumber, attemptKind);
+    this.recoveryAttempts.set(`${attemptKind}:${attemptNumber}`, identity);
+    return identity;
+  }
+
+  setPendingFailbackMigration(input: {
+    commit: () => Promise<{ readonly code: string }>;
+    abort: () => Promise<void>;
+    markDispatched: () => void;
+  }): void {
+    this.pendingFailbackMigration = input;
+  }
+
+  hasPendingFailbackMigration(): boolean {
+    return this.pendingFailbackMigration != null;
+  }
+
+  markPendingFailbackDispatched(): void {
+    this.pendingFailbackMigration?.markDispatched();
+  }
+
+  async commitPendingFailbackMigration(): Promise<{ readonly code: string }> {
+    if (!this.pendingFailbackMigration) return { code: "not_found" };
+    const pending = this.pendingFailbackMigration;
+    const result = await pending.commit();
+    this.pendingFailbackMigration = null;
+    return result;
+  }
+
+  async abortPendingFailbackMigration(): Promise<void> {
+    const pending = this.pendingFailbackMigration;
+    this.pendingFailbackMigration = null;
+    await pending?.abort();
+  }
+
+  setRecoveryAttemptScopes(
+    identity: AttemptIdentity,
+    scopes: readonly import("@/lib/recovery/contracts").RecoveryScope[]
+  ): void {
+    this.recoveryAttemptScopes ??= new Map();
+    this.recoveryAttemptScopes.set(identity.attemptOutcomeId, scopes);
+  }
+
+  getRecoveryAttemptScopes(identity: AttemptIdentity | null | undefined) {
+    this.recoveryAttemptScopes ??= new Map();
+    if (!identity) return [];
+    return this.recoveryAttemptScopes.get(identity.attemptOutcomeId) ?? [];
+  }
+
+  setRecoveryLayerBucket(bucket: number): void {
+    this.recoveryLayerBucket = bucket;
+  }
+
+  getRecoveryLayerBucket(): number | null {
+    return this.recoveryLayerBucket ?? null;
+  }
+
+  setRecoveryAuthorityMode(mode: RecoveryAuthorityMode): void {
+    this.recoveryAuthorityMode = mode;
+  }
+
+  getRecoveryAuthorityMode(): RecoveryAuthorityMode {
+    return this.recoveryAuthorityMode ?? "legacy";
   }
 
   private readonly endpointPolicy: EndpointPolicy;
@@ -264,7 +363,13 @@ export class ProxySession {
     this.messageContext = null;
     this.sessionId = null;
     this.providerChain = [];
-    this.endpointPolicy = resolveSessionEndpointPolicy(init.requestUrl);
+    this.endpointPolicy = tightenEndpointRecoveryPolicy(
+      resolveSessionEndpointPolicy(init.requestUrl),
+      {
+        body: init.request.message,
+        transport: isWebsocketClientRequest(init.headers) ? "websocket" : "http",
+      }
+    );
   }
 
   static async fromContext(c: Context): Promise<ProxySession> {

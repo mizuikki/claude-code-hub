@@ -35,6 +35,7 @@ export class ProxyError extends Error {
       providerId?: number;
       providerName?: string;
       requestId?: string; // 上游请求 ID（用于覆写响应时注入）
+      retryAfterMs?: number;
 
       /**
        * 上游响应体原文（通常为前缀片段）。
@@ -126,6 +127,14 @@ export class ProxyError extends Error {
       providerId: provider.id,
       providerName: provider.name,
       requestId,
+      retryAfterMs: (() => {
+        const value = response.headers.get("retry-after");
+        if (!value) return undefined;
+        const seconds = Number(value);
+        if (Number.isFinite(seconds)) return Math.max(0, seconds * 1_000);
+        const at = Date.parse(value);
+        return Number.isFinite(at) ? Math.max(0, at - Date.now()) : undefined;
+      })(),
     });
   }
 

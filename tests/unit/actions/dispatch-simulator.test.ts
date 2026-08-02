@@ -49,6 +49,14 @@ vi.mock("@/lib/rate-limit", () => ({
 }));
 vi.mock("@/lib/utils/timezone", () => timezoneMocks);
 vi.mock("@/repository/provider", () => repositoryMocks);
+vi.mock("@/lib/recovery/config-cache", () => ({
+  getCachedRecoveryConfiguration: vi.fn(async () => ({
+    failback: { mode: { configured: null, effective: "sticky", source: "code" } },
+  })),
+}));
+vi.mock("@/lib/recovery/binding-authority", () => ({
+  getSessionBindingRuntime: vi.fn(() => ({ mode: "legacy", production: null, shadow: null })),
+}));
 
 function createProvider(id: number, overrides: Partial<Provider> = {}): Provider {
   return {
@@ -191,7 +199,20 @@ describe("dispatch simulator", () => {
     expect(result.priorityTiers).toHaveLength(2);
     expect(result.selectedPriority).toBe(0);
     expect(result.finalCandidateCount).toBe(1);
+    expect(result.recoveryBucket).toBeGreaterThanOrEqual(0);
+    expect(result.recoveryBucket).toBeLessThan(10_000);
+    expect(result).toMatchObject({
+      bindingAuthority: "legacy",
+      effectiveFailbackMode: "sticky",
+      failbackCohort: null,
+      failbackAdmitted: false,
+      failbackSkipReason: "stateless",
+    });
     expect(result.priorityTiers[0].providers[0].name).toBe("winner");
+    expect(result.priorityTiers[0].providers[0]).toMatchObject({
+      recoveryBasisPoints: 10_000,
+      recoveryAdmitted: true,
+    });
     expect(
       result.steps[7].surviving.find((provider) => provider.name === "winner")?.redirectedModel
     ).toBe("glm-4.6");

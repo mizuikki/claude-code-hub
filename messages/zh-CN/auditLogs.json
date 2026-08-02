@@ -75,6 +75,17 @@
       "sync_litellm": "同步云端价格表",
       "upsert": "更新模型价格",
       "delete": "删除模型价格"
+    },
+    "recovery": {
+      "probe": "运行恢复探测",
+      "pause": "暂停恢复自动化",
+      "resume": "恢复恢复自动化",
+      "reset": "安全重启恢复流程",
+      "force_open": "强制打开恢复状态",
+      "force_close": "强制关闭恢复状态",
+      "configuration": {
+        "update": "更新恢复配置"
+      }
     }
   },
   "detail": {

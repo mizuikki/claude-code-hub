@@ -53,6 +53,10 @@ const KeyMutationFields = {
     .describe("Concurrent session limit."),
   providerGroup: z.string().max(200).nullable().optional().describe("Provider group expression."),
   cacheTtlPreference: CacheTtlPreferenceSchema.optional().describe("Cache TTL preference."),
+  sessionFailbackModeOverride: z
+    .enum(["inherit", "sticky", "safe_auto"])
+    .optional()
+    .describe("Administrator-controlled session failback mode override."),
 };
 
 export const KeyCreateSchema = z.object(KeyMutationFields).strict();

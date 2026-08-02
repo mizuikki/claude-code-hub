@@ -1,3 +1,4 @@
+import type { FailbackSkipReason } from "@/lib/recovery/contracts";
 import type { ProviderType } from "@/types/provider";
 
 export type DispatchSimulatorClientFormat =
@@ -22,6 +23,7 @@ export interface DispatchSimulatorInput {
   clientFormat: DispatchSimulatorClientFormat;
   modelName: string;
   groupTags: string[];
+  sessionId?: string;
 }
 
 export interface DispatchSimulatorEndpointStats {
@@ -42,6 +44,9 @@ export interface DispatchSimulatorProviderSnapshot {
   details?: string;
   redirectedModel?: string | null;
   endpointStats?: DispatchSimulatorEndpointStats | null;
+  recoveryBasisPoints?: number;
+  recoveryAdmitted?: boolean;
+  recoveryScopes?: Array<{ kind: string; health: string; basisPoints: number | null }>;
 }
 
 export interface DispatchSimulatorStep {
@@ -70,4 +75,10 @@ export interface DispatchSimulatorResult {
   totalProviders: number;
   finalCandidateCount: number;
   selectedPriority: number | null;
+  recoveryBucket: number | null;
+  bindingAuthority: string;
+  effectiveFailbackMode: string;
+  failbackCohort: number | null;
+  failbackAdmitted: boolean;
+  failbackSkipReason: FailbackSkipReason | null;
 }

@@ -75,6 +75,17 @@
       "sync_litellm": "Sync cloud price table",
       "upsert": "Upsert model price",
       "delete": "Delete model price"
+    },
+    "recovery": {
+      "probe": "Run recovery probe",
+      "pause": "Pause recovery automation",
+      "resume": "Resume recovery automation",
+      "reset": "Safely restart recovery",
+      "force_open": "Force recovery open",
+      "force_close": "Force recovery closed",
+      "configuration": {
+        "update": "Update recovery configuration"
+      }
     }
   },
   "detail": {

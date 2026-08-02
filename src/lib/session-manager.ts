@@ -7,6 +7,13 @@ import { parseClaudeMetadataUserId } from "@/lib/claude-code/metadata-user-id";
 import { getEnvConfig } from "@/lib/config/env.schema";
 import { logger } from "@/lib/logger";
 import {
+  bindingResultOrThrow,
+  getSessionBindingRuntime,
+  SessionBindingUnavailableError,
+  SessionMigrationInProgressError,
+} from "@/lib/recovery/binding-authority";
+import type { SessionProviderBindingV2 } from "@/lib/redis/session-binding-v2-service";
+import {
   redactMessages,
   redactRequestBody,
   redactResponseBody,
@@ -605,6 +612,25 @@ export class SessionManager {
     providerId: number,
     keyId?: number | null
   ): Promise<void> {
+    const bindingRuntime = getSessionBindingRuntime();
+    if (bindingRuntime.mode === "v2_only" || bindingRuntime.mode === "v2_dual_write") {
+      if (!bindingRuntime.production) throw new SessionBindingUnavailableError();
+      try {
+        const result = await bindingRuntime.production.create({
+          sessionId,
+          providerId,
+          keyId: keyId ?? null,
+          effectivePriority: 0,
+        });
+        if (result.code !== "applied" && result.code !== "exists") {
+          throw new SessionBindingUnavailableError(result.code);
+        }
+        return;
+      } catch (error) {
+        if (error instanceof SessionBindingUnavailableError) throw error;
+        throw new SessionBindingUnavailableError(error);
+      }
+    }
     const redis = getRedisClient();
     if (redis?.status !== "ready") return;
 
@@ -638,6 +664,14 @@ export class SessionManager {
           attemptedProviderId: providerId,
         });
       }
+      if (bindingRuntime.mode === "shadow" && bindingRuntime.shadow) {
+        void bindingRuntime.shadow.create({
+          sessionId,
+          providerId,
+          keyId: keyId ?? null,
+          effectivePriority: 0,
+        });
+      }
     } catch (error) {
       logger.error("SessionManager: Failed to bind provider", { error });
     }
@@ -650,8 +684,42 @@ export class SessionManager {
     sessionId: string,
     keyId?: number | null
   ): Promise<number | null> {
+    const bindingRuntime = getSessionBindingRuntime();
+    if (bindingRuntime.mode === "v2_only" || bindingRuntime.mode === "v2_dual_write") {
+      if (!bindingRuntime.production) throw new SessionBindingUnavailableError();
+      try {
+        let binding = bindingResultOrThrow(await bindingRuntime.production.get(sessionId));
+        if (binding?.state === "migrating") {
+          const { getCachedRecoveryConfiguration } = await import("@/lib/recovery/config-cache");
+          const configuration = await getCachedRecoveryConfiguration();
+          const waitMs = configuration.failback.migrationWaitMs.effective;
+          const deadline = Date.now() + waitMs;
+          while (binding?.state === "migrating" && Date.now() < deadline) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, Math.min(50, deadline - Date.now()))
+            );
+            binding = bindingResultOrThrow(await bindingRuntime.production.get(sessionId));
+          }
+        }
+        if (!binding) {
+          if (bindingRuntime.mode === "v2_only") return null;
+        } else {
+          if (binding.state === "migrating") throw new SessionMigrationInProgressError();
+          if (keyId != null && binding.keyId !== keyId) return null;
+          return binding.providerId;
+        }
+      } catch (error) {
+        if (error instanceof SessionBindingUnavailableError) throw error;
+        throw new SessionBindingUnavailableError(error);
+      }
+    }
     const redis = getRedisClient();
-    if (redis?.status !== "ready") return null;
+    if (redis?.status !== "ready") {
+      if (bindingRuntime.mode !== "legacy" && bindingRuntime.mode !== "shadow") {
+        throw new SessionBindingUnavailableError();
+      }
+      return null;
+    }
 
     try {
       if (keyId != null) {
@@ -672,6 +740,9 @@ export class SessionManager {
       if (value) {
         const providerId = parseInt(value, 10);
         if (!Number.isNaN(providerId)) {
+          if (bindingRuntime.mode === "shadow" && bindingRuntime.shadow) {
+            void bindingRuntime.shadow.get(sessionId);
+          }
           return providerId;
         }
       }
@@ -682,10 +753,30 @@ export class SessionManager {
     return null;
   }
 
+  static async getAuthoritativeSessionBindingV2(
+    sessionId: string
+  ): Promise<SessionProviderBindingV2 | null> {
+    const runtime = getSessionBindingRuntime();
+    if (runtime.mode !== "v2_only" && runtime.mode !== "v2_dual_write") return null;
+    if (!runtime.production) throw new SessionBindingUnavailableError();
+    try {
+      return bindingResultOrThrow(await runtime.production.get(sessionId));
+    } catch (error) {
+      if (error instanceof SessionBindingUnavailableError) throw error;
+      throw new SessionBindingUnavailableError(error);
+    }
+  }
+
   /**
    * 清除 session 绑定的 provider（用于跨模型 session 绑定过时时）
    */
   static async clearSessionProvider(sessionId: string): Promise<void> {
+    const bindingRuntime = getSessionBindingRuntime();
+    if (bindingRuntime.mode === "v2_only" || bindingRuntime.mode === "v2_dual_write") {
+      // V2 bindings are generation-fenced ownership records. A compatibility clear must not
+      // delete or weaken authoritative state; failover and migration use their CAS operations.
+      return;
+    }
     const redis = getRedisClient();
     if (redis?.status !== "ready") return;
 
@@ -707,6 +798,19 @@ export class SessionManager {
    * @returns 优先级数字（数字越小优先级越高），如果未绑定或无法查询则返回 null
    */
   static async getSessionProviderPriority(sessionId: string): Promise<number | null> {
+    const bindingRuntime = getSessionBindingRuntime();
+    if (bindingRuntime.mode === "v2_only" || bindingRuntime.mode === "v2_dual_write") {
+      if (!bindingRuntime.production) throw new SessionBindingUnavailableError();
+      try {
+        return (
+          bindingResultOrThrow(await bindingRuntime.production.get(sessionId))?.effectivePriority ??
+          null
+        );
+      } catch (error) {
+        if (error instanceof SessionBindingUnavailableError) throw error;
+        throw new SessionBindingUnavailableError(error);
+      }
+    }
     const redis = getRedisClient();
     if (redis?.status !== "ready") return null;
 
@@ -754,6 +858,52 @@ export class SessionManager {
     keyId?: number | null,
     forceUpdate: boolean = false
   ): Promise<{ updated: boolean; reason: string; details?: string }> {
+    const bindingRuntime = getSessionBindingRuntime();
+    if (bindingRuntime.mode === "v2_only" || bindingRuntime.mode === "v2_dual_write") {
+      if (!bindingRuntime.production) throw new SessionBindingUnavailableError();
+      try {
+        const current = bindingResultOrThrow(await bindingRuntime.production.get(sessionId));
+        if (!current) {
+          const created = await bindingRuntime.production.create({
+            sessionId,
+            providerId: newProviderId,
+            keyId: keyId ?? null,
+            effectivePriority: newProviderPriority,
+          });
+          if (created.code !== "applied" && created.code !== "exists") {
+            throw new SessionBindingUnavailableError(created.code);
+          }
+          return { updated: created.code === "applied", reason: "first_success" };
+        }
+        if (isFailoverSuccess || forceUpdate) {
+          const committed = await bindingRuntime.production.commitRoute({
+            sessionId,
+            expectedGeneration: current.generation,
+            providerId: newProviderId,
+            keyId: keyId ?? null,
+            effectivePriority: newProviderPriority,
+            reason: isFailoverSuccess ? "failover" : "race_winner",
+          });
+          if (committed.code === "stale_generation" || committed.code === "migrating") {
+            return { updated: false, reason: committed.code };
+          }
+          if (committed.code !== "applied") {
+            throw new SessionBindingUnavailableError(committed.code);
+          }
+          return {
+            updated: true,
+            reason: isFailoverSuccess ? "failover_success" : "race_winner_forced",
+          };
+        }
+        return {
+          updated: false,
+          reason: current.providerId === newProviderId ? "binding_unchanged" : "binding_preserved",
+        };
+      } catch (error) {
+        if (error instanceof SessionBindingUnavailableError) throw error;
+        throw new SessionBindingUnavailableError(error);
+      }
+    }
     const redis = getRedisClient();
     if (redis?.status !== "ready") {
       return { updated: false, reason: "redis_not_ready" };

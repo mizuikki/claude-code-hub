@@ -28,6 +28,7 @@ import {
   ProviderUnifiedTestSchema,
   ProviderUpdateSchema,
 } from "@/lib/api/v1/schemas/providers";
+import { CompatibilityCircuitResetSchema } from "@/lib/api/v1/schemas/recovery";
 import {
   applyBatchPatch,
   autoSortProviders,
@@ -302,7 +303,13 @@ providersRouter.openapi(
     description: "Resets the circuit breaker state for one provider.",
     "x-required-access": "admin",
     security,
-    request: { params: ProviderIdParamSchema },
+    request: {
+      params: ProviderIdParamSchema,
+      body: {
+        required: false,
+        content: { "application/json": { schema: CompatibilityCircuitResetSchema } },
+      },
+    },
     responses: {
       200: {
         description: "Circuit reset result.",

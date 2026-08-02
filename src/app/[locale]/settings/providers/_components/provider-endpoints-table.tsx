@@ -373,7 +373,10 @@ function EndpointRow({
         </TableCell>
       )}
       <TableCell className="font-mono text-xs max-w-[200px] truncate" title={endpoint.url}>
-        {endpoint.url}
+        <div>{endpoint.url}</div>
+        <div className="mt-1 font-sans text-[11px] text-muted-foreground">
+          {t("migrationSafetyPolicyOwned")}
+        </div>
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-2 flex-wrap">

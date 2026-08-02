@@ -3,6 +3,29 @@ import { getCircuitState, isCircuitOpen } from "@/lib/circuit-breaker";
 import { PROVIDER_GROUP } from "@/lib/constants/provider.constants";
 import { logger } from "@/lib/logger";
 import { RateLimitService } from "@/lib/rate-limit";
+import { getSessionBindingRuntime } from "@/lib/recovery/binding-authority";
+import { getCachedRecoveryConfiguration } from "@/lib/recovery/config-cache";
+import type { SessionFailbackSettings } from "@/lib/recovery/contracts";
+import { recoveryLayerBucket } from "@/lib/recovery/deterministic-bucket";
+import {
+  evaluateFailbackAdmission,
+  FailbackSemaphore,
+  failbackAbortCooldownMs,
+  resolveEffectiveFailbackMode,
+} from "@/lib/recovery/failback";
+import { recoveryMetrics } from "@/lib/recovery/observability";
+import { credentialFingerprint } from "@/lib/recovery/provider-limit";
+import {
+  admitRecoveryPriorityLayerWithTrials,
+  evaluateProviderRecovery,
+  observeProviderRecoveryShadow,
+  validateProviderRecovery,
+} from "@/lib/recovery/routing-admission";
+import {
+  getProductionRecoveryService,
+  getRecoveryProviderLimitService,
+} from "@/lib/recovery/runtime";
+import { getRedisClient } from "@/lib/redis/client";
 import { SessionManager } from "@/lib/session-manager";
 import { parseProviderGroups, resolveProviderGroupsWithDefault } from "@/lib/utils/provider-group";
 import { isProviderActiveNow } from "@/lib/utils/provider-schedule";
@@ -13,11 +36,35 @@ import { getGroupCostMultiplier } from "@/repository/provider-groups";
 import type { ProviderChainItem } from "@/types/message";
 import type { Provider } from "@/types/provider";
 import { isClientAllowedDetailed } from "./client-detector";
+import { resolveEndpointPolicy } from "./endpoint-policy";
 import type { ClientFormat } from "./format-mapper";
 import { getVerboseProviderErrorCached } from "./provider-selector-settings-cache";
 import { ProxyResponses } from "./responses";
 import { providerSupportsResponsesCompactionV2 } from "./responses-compaction-v2";
 import type { ProxySession } from "./session";
+
+const statelessRecoveryRouteKeys = new WeakMap<ProxySession, string>();
+
+function recoveryRouteKey(session?: ProxySession): string {
+  if (!session) return `request_${randomUUID()}`;
+  if (session.sessionId) return session.sessionId;
+  const current = statelessRecoveryRouteKeys.get(session);
+  if (current) return current;
+  const created = `request_${randomUUID()}`;
+  statelessRecoveryRouteKeys.set(session, created);
+  return created;
+}
+
+async function providerCredentialIsCoolingDown(provider: Provider): Promise<boolean> {
+  const service = getRecoveryProviderLimitService();
+  if (!service) return false;
+  return (
+    await service.getCooldown({
+      providerId: provider.id,
+      credentialFingerprint: credentialFingerprint(provider.key),
+    })
+  ).blocked;
+}
 
 /**
  * 解析逗号分隔的分组字符串为数组
@@ -130,6 +177,226 @@ function checkFormatProviderTypeCompatibility(
 }
 
 export class ProxyProviderResolver {
+  private static async maybePrepareFailback(session: ProxySession): Promise<Provider | null> {
+    if (!session.sessionId) {
+      recoveryMetrics.add("recovery.failback_skips", 1, { skip_reason: "stateless" });
+      return null;
+    }
+    const binding = await SessionManager.getAuthoritativeSessionBindingV2?.(session.sessionId);
+    if (binding?.state !== "stable" || binding.failedOverFromProviderId === null) {
+      recoveryMetrics.add("recovery.failback_skips", 1, {
+        skip_reason: "not_failover_binding",
+      });
+      return null;
+    }
+    const endpointPolicy =
+      session.getEndpointPolicy?.() ?? resolveEndpointPolicy(session.requestUrl?.pathname ?? "/");
+    if (endpointPolicy.migrationSafety !== "replayable") {
+      recoveryMetrics.add("recovery.failback_skips", 1, {
+        skip_reason: "endpoint_not_replayable",
+      });
+      return null;
+    }
+    const origin = await findProviderById(binding.failedOverFromProviderId);
+    if (!origin?.isEnabled) {
+      recoveryMetrics.add("recovery.failback_skips", 1, { skip_reason: "origin_ineligible" });
+      return null;
+    }
+    const configuration = await getCachedRecoveryConfiguration(origin.id);
+    const settings = Object.fromEntries(
+      Object.entries(configuration.failback).map(([key, value]) => [key, value.effective])
+    ) as unknown as SessionFailbackSettings;
+    const mode = resolveEffectiveFailbackMode({
+      apiKeyOverride: session.authState?.key?.sessionFailbackModeOverride,
+      system: configuration.failback.mode,
+    }).effective;
+    const requestedModel = session.getOriginalModel();
+    const effectiveGroup = getEffectiveProviderGroup(session);
+    const timezone = await resolveSystemTimezone();
+    const originRequestEligible =
+      !session.hasProviderBoundCompactionState() &&
+      !session.requestUrl.pathname.includes("websocket") &&
+      isProviderActiveNow(origin.activeTimeStart, origin.activeTimeEnd, timezone) &&
+      checkFormatProviderTypeCompatibility(session.originalFormat, origin.providerType) &&
+      (!requestedModel || providerSupportsModel(origin, requestedModel)) &&
+      (!effectiveGroup || checkProviderGroupMatch(origin.groupTag, effectiveGroup)) &&
+      isClientAllowedDetailed(session, origin.allowedClients ?? [], origin.blockedClients ?? [])
+        .allowed;
+    const originPriority = ProxyProviderResolver.resolveEffectivePriority(origin, effectiveGroup);
+    const requestEligible = (await session.getProvidersSnapshot()).filter(
+      (provider) =>
+        provider.isEnabled &&
+        isProviderActiveNow(provider.activeTimeStart, provider.activeTimeEnd, timezone) &&
+        (!effectiveGroup || checkProviderGroupMatch(provider.groupTag, effectiveGroup)) &&
+        checkFormatProviderTypeCompatibility(session.originalFormat, provider.providerType) &&
+        (!requestedModel || providerSupportsModel(provider, requestedModel)) &&
+        isClientAllowedDetailed(
+          session,
+          provider.allowedClients ?? [],
+          provider.blockedClients ?? []
+        ).allowed
+    );
+    const withinLimits = await ProxyProviderResolver.filterByLimits(requestEligible);
+    const eligible = (
+      await Promise.all(
+        withinLimits.map(async (provider) => ({
+          provider,
+          coolingDown: await providerCredentialIsCoolingDown(provider),
+        }))
+      )
+    )
+      .filter((entry) => !entry.coolingDown)
+      .map((entry) => entry.provider);
+    const originEligible =
+      originRequestEligible && eligible.some((provider) => provider.id === origin.id);
+    const preferredPriority = Math.min(
+      ...eligible.map((provider) =>
+        ProxyProviderResolver.resolveEffectivePriority(provider, effectiveGroup)
+      )
+    );
+    const recovery = getProductionRecoveryService();
+    const originScopes = [
+      ...(origin.providerVendorId
+        ? [
+            {
+              kind: "vendor-type" as const,
+              vendorId: origin.providerVendorId,
+              providerType: origin.providerType,
+            },
+          ]
+        : []),
+      { kind: "provider" as const, providerId: origin.id },
+    ];
+    const originStates = recovery
+      ? await Promise.all(originScopes.map((scope) => recovery.getState(scope)))
+      : [];
+    const originHealth =
+      originStates.length > 0 && originStates.every((state) => state?.health === "closed")
+        ? "closed"
+        : originStates.some((state) => state)
+          ? "open"
+          : "unknown";
+    const originClosedStableAt = originStates.reduce<number | null>((latest, state) => {
+      if (state?.closedStableAt == null) return latest;
+      return latest === null ? state.closedStableAt : Math.max(latest, state.closedStableAt);
+    }, null);
+    const admission = evaluateFailbackAdmission({
+      sessionId: session.sessionId,
+      mode,
+      settings,
+      binding,
+      endpointReplayable: true,
+      requestBlocked: !originEligible,
+      originHealth,
+      originClosedStableAt,
+      originEligible,
+      originPreferred: originPriority === preferredPriority,
+      originEffectivePriority: originPriority,
+      now: Date.now(),
+    });
+    if (!admission.admitted) {
+      recoveryMetrics.add("recovery.failback_skips", 1, { skip_reason: admission.reason });
+      return null;
+    }
+    const redis = getRedisClient({ allowWhenRateLimitDisabled: true });
+    const bindingRuntime = getSessionBindingRuntime();
+    if (!redis || !bindingRuntime.production) {
+      recoveryMetrics.add("recovery.failback_skips", 1, {
+        skip_reason: "coordination_unavailable",
+      });
+      return null;
+    }
+    const semaphore = new FailbackSemaphore(redis);
+    const migrationLeaseMs = Math.max(30_000, settings.migrationWaitMs + 120_000);
+    const semaphoreLease = await semaphore.claim(
+      settings.maxConcurrentMigrations,
+      migrationLeaseMs
+    );
+    if (!semaphoreLease) {
+      recoveryMetrics.add("recovery.failback_skips", 1, { skip_reason: "global_capacity" });
+      return null;
+    }
+    const identity = session.getRecoveryAttemptIdentity(1, "failback");
+    let prepared;
+    try {
+      prepared = await bindingRuntime.production.prepareMigration({
+        sessionId: session.sessionId,
+        expectedGeneration: binding.generation,
+        providerId: origin.id,
+        keyId: session.authState?.key?.id ?? null,
+        leaseMs: migrationLeaseMs,
+        attemptOutcomeId: identity.attemptOutcomeId,
+      });
+    } catch (error) {
+      await semaphore.release(semaphoreLease);
+      throw error;
+    }
+    if (prepared.code !== "applied") {
+      await semaphore.release(semaphoreLease);
+      recoveryMetrics.add("recovery.failback_skips", 1, { skip_reason: "session_busy" });
+      return null;
+    }
+    recoveryMetrics.add("recovery.failback_inflight", 1, { result: "active" });
+    let activeSemaphoreLease = semaphoreLease;
+    const renewal = setInterval(
+      () => {
+        void Promise.all([
+          semaphore.renew(activeSemaphoreLease, migrationLeaseMs).then((renewed) => {
+            if (renewed) activeSemaphoreLease = renewed;
+          }),
+          bindingRuntime.production!.renewMigration({
+            sessionId: session.sessionId!,
+            generation: binding.generation,
+            token: prepared.token,
+            leaseMs: migrationLeaseMs,
+          }),
+        ]).catch((error) => logger.error("Failback lease renewal failed", { error }));
+      },
+      Math.max(1_000, Math.trunc(migrationLeaseMs / 3))
+    );
+    renewal.unref?.();
+    let migrationFinished = false;
+    let targetDispatched = false;
+    const finishMigration = async (result: string): Promise<void> => {
+      if (migrationFinished) return;
+      migrationFinished = true;
+      clearInterval(renewal);
+      recoveryMetrics.add("recovery.failback_inflight", -1, { result: "active" });
+      recoveryMetrics.add("recovery.failback_attempts", 1, { result });
+      await semaphore.release(activeSemaphoreLease);
+    };
+    session.setPendingFailbackMigration({
+      markDispatched: () => {
+        if (targetDispatched) return;
+        targetDispatched = true;
+        recoveryMetrics.add("recovery.failback_attempts", 1, { result: "dispatched" });
+      },
+      commit: async () => {
+        const result = await bindingRuntime.production!.commitMigration({
+          sessionId: session.sessionId!,
+          expectedGeneration: binding.generation,
+          token: prepared.token,
+          effectivePriority: originPriority,
+        });
+        await finishMigration(result.code === "applied" ? "committed" : "commit_failed");
+        return result;
+      },
+      abort: async () => {
+        try {
+          await bindingRuntime.production!.abortMigration({
+            sessionId: session.sessionId!,
+            expectedGeneration: binding.generation,
+            token: prepared.token,
+            cooldownMs: failbackAbortCooldownMs(targetDispatched, settings.retryCooldownMs),
+          });
+        } finally {
+          await finishMigration("aborted");
+        }
+      },
+    });
+    return origin;
+  }
+
   static async ensure(
     session: ProxySession,
     _deprecatedTargetProviderType?: "claude" | "codex" // 废弃参数，保留向后兼容
@@ -757,6 +1024,18 @@ export class ProxyProviderResolver {
       return null;
     }
 
+    if (await providerCredentialIsCoolingDown(provider)) return null;
+
+    const failbackProvider = await ProxyProviderResolver.maybePrepareFailback(session);
+    if (failbackProvider) return failbackProvider;
+
+    session.setRecoveryLayerBucket?.(
+      recoveryLayerBucket(
+        recoveryRouteKey(session),
+        String(ProxyProviderResolver.resolveEffectivePriority(provider, effectiveGroup ?? null))
+      )
+    );
+
     logger.info("ProviderSelector: Reusing provider", {
       providerName: provider.name,
       providerId: provider.id,
@@ -1003,7 +1282,17 @@ export class ProxyProviderResolver {
     context.beforeHealthCheck = candidateProviders.length;
 
     // Step 4: 过滤超限供应商（健康度过滤）
-    const healthyProviders = await ProxyProviderResolver.filterByLimits(candidateProviders);
+    const limitHealthyProviders = await ProxyProviderResolver.filterByLimits(candidateProviders);
+    const healthyProviders = (
+      await Promise.all(
+        limitHealthyProviders.map(async (provider) => ({
+          provider,
+          coolingDown: await providerCredentialIsCoolingDown(provider),
+        }))
+      )
+    )
+      .filter((entry) => !entry.coolingDown)
+      .map((entry) => entry.provider);
     context.afterHealthCheck = healthyProviders.length;
 
     // 记录过滤掉的供应商（熔断或限流）
@@ -1051,10 +1340,47 @@ export class ProxyProviderResolver {
     }
 
     // Step 5: 优先级分层（只选择最高优先级的供应商）
-    const topPriorityProviders = ProxyProviderResolver.selectTopPriority(
-      healthyProviders,
-      effectiveGroupPick
+    const recoveryCandidates = await Promise.all(
+      healthyProviders.map(async (provider) => {
+        const evaluation = await evaluateProviderRecovery(provider);
+        return {
+          value: provider,
+          priority: ProxyProviderResolver.resolveEffectivePriority(
+            provider,
+            effectiveGroupPick ?? null
+          ),
+          effectiveBasisPoints: evaluation.effectiveBasisPoints,
+          halfOpenEligible: evaluation.halfOpenEligible === true,
+          evaluation,
+        };
+      })
     );
+    const recoveryAdmission = admitRecoveryPriorityLayerWithTrials({
+      candidates: recoveryCandidates,
+      routeKey: recoveryRouteKey(session),
+    });
+    const shadowAdmission = admitRecoveryPriorityLayerWithTrials({
+      candidates: recoveryCandidates.map((candidate) => ({
+        ...candidate,
+        effectiveBasisPoints:
+          candidate.evaluation.shadowEffectiveBasisPoints ?? candidate.effectiveBasisPoints,
+      })),
+      routeKey: recoveryRouteKey(session),
+    });
+    const shadowAdmittedIds = new Set(shadowAdmission.admitted.map((provider) => provider.id));
+    const legacyAdmittedIds = new Set(recoveryAdmission.admitted.map((provider) => provider.id));
+    for (const candidate of recoveryCandidates) {
+      observeProviderRecoveryShadow({
+        provider: candidate.value,
+        evaluation: candidate.evaluation,
+        legacyAllowed: legacyAdmittedIds.has(candidate.value.id),
+        v2Allowed: shadowAdmittedIds.has(candidate.value.id),
+      });
+    }
+    const topPriorityProviders = [...recoveryAdmission.admitted];
+    const selectedHalfOpenTrial = recoveryAdmission.halfOpenTrial;
+    const selectedPriority = recoveryAdmission.priority;
+    const selectedBucket = recoveryAdmission.bucket;
     const priorities = [
       ...new Set(
         healthyProviders.map((p) =>
@@ -1063,11 +1389,11 @@ export class ProxyProviderResolver {
       ),
     ].sort((a, b) => a - b);
     context.priorityLevels = priorities;
-    context.selectedPriority = Math.min(
-      ...healthyProviders.map((p) =>
-        ProxyProviderResolver.resolveEffectivePriority(p, effectiveGroupPick ?? null)
-      )
-    );
+    context.selectedPriority = selectedPriority ?? Math.min(...priorities);
+
+    if (topPriorityProviders.length === 0) {
+      return { provider: null, context };
+    }
 
     // Step 6: 成本排序 + 加权选择 + 计算概率
     const totalWeight = topPriorityProviders.reduce((sum, p) => sum + p.weight, 0);
@@ -1080,6 +1406,16 @@ export class ProxyProviderResolver {
     }));
 
     const selected = ProxyProviderResolver.selectOptimal(topPriorityProviders);
+    if (
+      !selectedHalfOpenTrial &&
+      selectedBucket !== null &&
+      !(await validateProviderRecovery(selected, selectedBucket))
+    ) {
+      return { provider: null, context };
+    }
+    if (session && selectedBucket !== null) {
+      session.setRecoveryLayerBucket?.(selectedBucket);
+    }
 
     // 详细的选择日志
     logger.info("ProviderSelector: Selection decision", {
@@ -1422,3 +1758,5 @@ export {
   isProviderActiveNow,
   providerSupportsModel,
 };
+
+import { randomUUID } from "node:crypto";

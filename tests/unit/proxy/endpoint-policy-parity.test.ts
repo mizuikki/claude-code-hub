@@ -58,6 +58,11 @@ describe("T11: raw passthrough endpoint parity", () => {
       bypassSpecialSettings: true,
       bypassResponseRectifier: true,
       endpointPoolStrictness: "strict",
+      recoveryEvidence: "none",
+      halfOpenEligible: false,
+      retrySafety: "never",
+      migrationSafety: "provider_bound",
+      trackSessionBinding: false,
     };
 
     expect(countTokensPolicy).toEqual(expectedPolicy);
@@ -198,6 +203,11 @@ describe("T13: non-target regression (default policy preserved)", () => {
     bypassSpecialSettings: false,
     bypassResponseRectifier: false,
     endpointPoolStrictness: "inherit",
+    recoveryEvidence: "business",
+    halfOpenEligible: true,
+    retrySafety: "pre_commit_only",
+    migrationSafety: "replayable",
+    trackSessionBinding: true,
   };
 
   test("/v1/messages retains full default policy", () => {
@@ -327,18 +337,27 @@ describe("T14: path edge-case normalization", () => {
   test.each([
     "/v1/messages/count",
     "/v1/messages/count_token",
-    "/v1/responses/mini",
-    "/v1/responses/compacted",
     "/v2/messages/count_tokens",
     "/v1/messages/count_tokens/extra",
-  ])("non-matching path %s -> default", (pathname) => {
+  ])("non-matching path %s -> conservative raw policy", (pathname) => {
     expect(isRawPassthroughEndpointPath(pathname)).toBe(false);
     const policy = resolveEndpointPolicy(pathname);
-    expect(policy.kind).toBe("default");
+    expect(policy.kind).toBe("raw_passthrough");
   });
 
-  test("empty and root paths -> default", () => {
-    expect(resolveEndpointPolicy("/").kind).toBe("default");
-    expect(resolveEndpointPolicy("").kind).toBe("default");
+  test.each([
+    "/v1/responses/mini",
+    "/v1/responses/compacted",
+  ])("known response resource path %s -> conservative resource policy", (pathname) => {
+    const policy = resolveEndpointPolicy(pathname);
+    expect(policy.kind).toBe("default");
+    expect(policy.recoveryEvidence).toBe("none");
+    expect(policy.allowRetry).toBe(false);
+    expect(policy.allowProviderSwitch).toBe(false);
+  });
+
+  test("empty and root paths -> conservative raw policy", () => {
+    expect(resolveEndpointPolicy("/").kind).toBe("raw_passthrough");
+    expect(resolveEndpointPolicy("").kind).toBe("raw_passthrough");
   });
 });

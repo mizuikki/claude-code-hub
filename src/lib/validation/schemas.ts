@@ -440,6 +440,7 @@ export const KeyFormSchema = z.object({
     .optional()
     .default(""),
   cacheTtlPreference: CACHE_TTL_PREFERENCE.optional().default("inherit"),
+  sessionFailbackModeOverride: z.enum(["inherit", "sticky", "safe_auto"]).optional(),
 });
 
 // 共享：静态自定义请求头的 zod 校验器，复用 normalizeCustomHeadersRecord 中的全部规则。

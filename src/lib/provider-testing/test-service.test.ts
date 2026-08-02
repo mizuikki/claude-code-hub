@@ -91,6 +91,24 @@ describe("executeProviderTest", () => {
     expect(result.content).toBe("pong");
   });
 
+  test("functional probe output token cap overrides the provider template", async () => {
+    mockJsonResponse({
+      model: "gpt-4.1-mini",
+      choices: [{ message: { role: "assistant", content: "pong" } }],
+    });
+
+    await executeProviderTest({
+      providerUrl: "https://api.example.com",
+      apiKey: "sk-test",
+      providerType: "openai-compatible",
+      model: "gpt-4.1-mini",
+      maxOutputTokens: 7,
+    });
+
+    const request = fetchMock.mock.calls[0]?.[1];
+    expect(JSON.parse(String(request?.body))).toMatchObject({ max_tokens: 7 });
+  });
+
   test("rawResponse 应该保留完整响应体，不能在服务层被截断", async () => {
     const assistantText = `pong-${"x".repeat(7000)}`;
     const responseBody = mockJsonResponse({

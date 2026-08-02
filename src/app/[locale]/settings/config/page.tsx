@@ -1,9 +1,13 @@
 import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
 import { Section } from "@/components/section";
+import { getCachedRecoveryConfiguration } from "@/lib/recovery/config-cache";
+import { recoveryRuntimeIsDegraded } from "@/lib/recovery/runtime";
+import { getPersistedRecoveryConfiguration } from "@/repository/recovery-config";
 import { getSystemSettings } from "@/repository/system-config";
 import { SettingsPageHeader } from "../_components/settings-page-header";
 import { AutoCleanupForm } from "./_components/auto-cleanup-form";
+import { RecoverySettingsPanel } from "./_components/recovery-settings-panel";
 import { SettingsConfigSkeleton } from "./_components/settings-config-skeleton";
 import { SystemSettingsForm } from "./_components/system-settings-form";
 
@@ -34,9 +38,33 @@ export default async function SettingsConfigPage({
 async function SettingsConfigContent({ locale }: { locale: string }) {
   const t = await getTranslations({ locale, namespace: "settings" });
   const settings = await getSystemSettings();
+  const [persistedRecovery, resolvedRecovery] = await Promise.all([
+    getPersistedRecoveryConfiguration(),
+    getCachedRecoveryConfiguration(),
+  ]);
 
   return (
     <>
+      <Section
+        title={t("recovery.title")}
+        description={t("recovery.description")}
+        icon="activity"
+        variant="default"
+      >
+        <RecoverySettingsPanel
+          initialRecoveryAuthority={persistedRecovery.system.recoveryAuthorityMode ?? "legacy"}
+          initialBindingAuthority={persistedRecovery.system.sessionBindingAuthorityMode ?? "legacy"}
+          initialFailbackMode={resolvedRecovery.failback.mode.effective}
+          initialRecoverySettings={persistedRecovery.system.recoverySettings}
+          initialProbeBudgets={persistedRecovery.system.recoveryProbeBudgets}
+          initialFailbackSettings={persistedRecovery.system.sessionFailbackSettings}
+          resolvedRecoverySettings={resolvedRecovery.recovery}
+          resolvedProbeBudgets={resolvedRecovery.probeBudgets}
+          resolvedFailbackSettings={resolvedRecovery.failback}
+          degraded={recoveryRuntimeIsDegraded()}
+        />
+      </Section>
+
       <Section
         title={t("config.section.siteParams.title")}
         description={t("config.section.siteParams.description")}

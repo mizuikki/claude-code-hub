@@ -1,3 +1,4 @@
+import type { SessionFailbackMode, SessionFailbackModeOverride } from "@/lib/recovery/contracts";
 import type { CacheTtlPreference } from "./cache";
 
 /**
@@ -31,6 +32,7 @@ export interface Key {
 
   // Cache TTL override (inherit -> follow provider/client)
   cacheTtlPreference: CacheTtlPreference | null;
+  sessionFailbackModeOverride: SessionFailbackModeOverride;
 
   createdAt: Date;
   updatedAt: Date;
@@ -64,6 +66,7 @@ export interface CreateKeyData {
 
   // Cache TTL override
   cache_ttl_preference?: CacheTtlPreference;
+  session_failback_mode_override?: SessionFailbackMode | null;
 }
 
 /**
@@ -91,4 +94,5 @@ export interface UpdateKeyData {
 
   // Cache TTL override
   cache_ttl_preference?: CacheTtlPreference;
+  session_failback_mode_override?: SessionFailbackMode | null;
 }

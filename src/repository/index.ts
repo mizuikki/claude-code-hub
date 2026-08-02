@@ -69,6 +69,20 @@ export {
   updateProviderEndpointProbeSnapshot,
   updateProviderVendor,
 } from "./provider-endpoints";
+export {
+  getKeyFailbackModeOverride,
+  getPersistedRecoveryConfiguration,
+  listPendingDegradedOpenEvidence,
+  markDegradedOpenEvidenceReconciled,
+  setKeyFailbackModeOverride,
+  updateProviderRecoveryConfiguration,
+  updateSystemRecoveryConfiguration,
+  upsertDegradedOpenEvidence,
+} from "./recovery-config";
+export {
+  getRecoveryProbeProviderCost,
+  recordRecoveryProbeUsage,
+} from "./recovery-probe-ledger";
 // Statistics related exports
 export {
   getActiveKeysForUserFromDB,

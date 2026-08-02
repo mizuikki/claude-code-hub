@@ -1,6 +1,9 @@
 import "server-only";
 
 import { logger } from "@/lib/logger";
+import { createAttemptIdentity, createRequestId } from "@/lib/recovery/attempt-identity";
+import { getRecoveryCompatibilityFacade } from "@/lib/recovery/compatibility-facade";
+import type { AttemptIdentity } from "@/lib/recovery/contracts";
 import {
   deleteEndpointCircuitState,
   type EndpointCircuitBreakerState,
@@ -305,13 +308,35 @@ export async function getAllEndpointHealthStatusAsync(
   return status;
 }
 
-export async function isEndpointCircuitOpen(endpointId: number): Promise<boolean> {
+export interface EndpointRecoveryCompatibilityContext {
+  readonly providerId: number;
+  readonly identity?: AttemptIdentity;
+  readonly durationMs?: number;
+}
+
+function endpointScope(endpointId: number, context: EndpointRecoveryCompatibilityContext) {
+  return {
+    kind: "endpoint" as const,
+    providerId: context.providerId,
+    endpoint: { kind: "managed" as const, endpointId },
+  };
+}
+
+export async function isEndpointCircuitOpen(
+  endpointId: number,
+  context?: EndpointRecoveryCompatibilityContext
+): Promise<boolean> {
   const { getEnvConfig } = await import("@/lib/config/env.schema");
   if (!getEnvConfig().ENABLE_ENDPOINT_CIRCUIT_BREAKER) {
     return false;
   }
 
   const health = await getOrCreateHealth(endpointId);
+
+  const facade = getRecoveryCompatibilityFacade();
+  if (facade && context) {
+    return facade.isOpen(endpointScope(endpointId, context), health.circuitState);
+  }
 
   if (health.circuitState === "closed") {
     return false;
@@ -331,7 +356,11 @@ export async function isEndpointCircuitOpen(endpointId: number): Promise<boolean
   return false;
 }
 
-export async function recordEndpointFailure(endpointId: number, error: Error): Promise<void> {
+export async function recordEndpointFailure(
+  endpointId: number,
+  error: Error,
+  context?: EndpointRecoveryCompatibilityContext
+): Promise<void> {
   const { getEnvConfig } = await import("@/lib/config/env.schema");
   if (!getEnvConfig().ENABLE_ENDPOINT_CIRCUIT_BREAKER) {
     return;
@@ -377,9 +406,23 @@ export async function recordEndpointFailure(endpointId: number, error: Error): P
   }
 
   persistStateToRedis(endpointId, health);
+
+  const facade = getRecoveryCompatibilityFacade();
+  if (facade && context) {
+    const requestId = createRequestId();
+    await facade.mirrorOutcome({
+      scope: endpointScope(endpointId, context),
+      disposition: "transient_failure",
+      identity: context.identity ?? createAttemptIdentity(requestId, 0, "primary"),
+      durationMs: context.durationMs ?? 0,
+    });
+  }
 }
 
-export async function recordEndpointSuccess(endpointId: number): Promise<void> {
+export async function recordEndpointSuccess(
+  endpointId: number,
+  context?: EndpointRecoveryCompatibilityContext
+): Promise<void> {
   const { getEnvConfig } = await import("@/lib/config/env.schema");
   if (!getEnvConfig().ENABLE_ENDPOINT_CIRCUIT_BREAKER) {
     return;
@@ -387,6 +430,7 @@ export async function recordEndpointSuccess(endpointId: number): Promise<void> {
 
   const health = await getOrCreateHealth(endpointId);
   const config = DEFAULT_ENDPOINT_CIRCUIT_BREAKER_CONFIG;
+  let shouldPersist = false;
 
   if (health.circuitState === "half-open") {
     health.halfOpenSuccessCount += 1;
@@ -399,15 +443,27 @@ export async function recordEndpointSuccess(endpointId: number): Promise<void> {
       health.halfOpenSuccessCount = 0;
     }
 
-    persistStateToRedis(endpointId, health);
-    return;
+    shouldPersist = true;
   }
 
-  if (health.failureCount > 0) {
+  if (health.circuitState !== "half-open" && health.failureCount > 0) {
     health.failureCount = 0;
     health.lastFailureTime = null;
     health.circuitOpenUntil = null;
-    persistStateToRedis(endpointId, health);
+    shouldPersist = true;
+  }
+
+  if (shouldPersist) persistStateToRedis(endpointId, health);
+
+  const facade = getRecoveryCompatibilityFacade();
+  if (facade && context) {
+    const requestId = createRequestId();
+    await facade.mirrorOutcome({
+      scope: endpointScope(endpointId, context),
+      disposition: "success",
+      identity: context.identity ?? createAttemptIdentity(requestId, 0, "primary"),
+      durationMs: context.durationMs ?? 0,
+    });
   }
 }
 
@@ -425,6 +481,23 @@ export async function resetEndpointCircuit(endpointId: number): Promise<void> {
 
   await deleteEndpointCircuitState(endpointId);
   enforceEndpointHealthCacheMaxSize();
+}
+
+/** Conservatively export a non-healthy V2 managed endpoint to the legacy breaker. */
+export async function forceOpenEndpointCircuitState(endpointId: number): Promise<void> {
+  const health = getOrCreateHealthSync(endpointId);
+  health.failureCount = Math.max(1, health.failureCount);
+  health.lastFailureTime = Date.now();
+  health.circuitState = "open";
+  health.circuitOpenUntil = null;
+  health.halfOpenSuccessCount = 0;
+  await saveEndpointCircuitState(endpointId, {
+    failureCount: health.failureCount,
+    lastFailureTime: health.lastFailureTime,
+    circuitState: "open",
+    circuitOpenUntil: null,
+    halfOpenSuccessCount: 0,
+  });
 }
 
 /**

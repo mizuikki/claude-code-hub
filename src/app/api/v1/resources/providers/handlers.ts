@@ -44,6 +44,8 @@ import {
   type ProviderUpdateInput,
   ProviderUpdateSchema,
 } from "@/lib/api/v1/schemas/providers";
+import { CompatibilityCircuitResetSchema } from "@/lib/api/v1/schemas/recovery";
+import { emitActionAudit } from "@/lib/audit/emit";
 import type { ProviderDisplay, ProviderStatistics, ProviderStatisticsMap } from "@/types/provider";
 
 const InternalProviderTypeSchema = z.enum(INTERNAL_PROVIDER_TYPE_VALUES);
@@ -241,13 +243,27 @@ export async function resetProviderCircuit(c: Context): Promise<Response> {
   const existing = await findVisibleProvider(c, id);
   if (existing instanceof Response) return existing;
   if (!existing) return providerNotFound(c);
+  const parsedBody = CompatibilityCircuitResetSchema.safeParse(
+    await c.req.json().catch(() => ({}))
+  );
+  if (!parsedBody.success) return fromZodError(parsedBody.error, new URL(c.req.url).pathname);
   const providerActions = await import("@/actions/providers");
+  const resetInput = Object.keys(parsedBody.data).length > 0 ? parsedBody.data : undefined;
   const result = await callAction(
     c,
     providerActions.resetProviderCircuit,
-    [id] as never[],
+    (resetInput ? [id, resetInput] : [id]) as never[],
     c.get("auth")
   );
+  emitActionAudit({
+    category: "provider",
+    action: "recovery.reset",
+    targetType: "provider",
+    targetId: String(id),
+    before: resetInput ?? {},
+    after: result,
+    success: result.ok,
+  });
   return result.ok ? jsonResponse({ ok: true }) : actionError(c, result);
 }
 

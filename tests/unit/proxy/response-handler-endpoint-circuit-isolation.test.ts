@@ -422,7 +422,7 @@ describe("Endpoint circuit breaker isolation", () => {
     ).toBe(true);
   });
 
-  it("non-200 HTTP status should call recordFailure but NOT recordEndpointFailure", async () => {
+  it("HTTP 429 should use credential cooldown without breaker failure accounting", async () => {
     const session = createSession();
     // Set upstream status to 429 in deferred meta
     setDeferredStreamingFinalization(session, {
@@ -442,7 +442,7 @@ describe("Endpoint circuit breaker isolation", () => {
     await ProxyResponseHandler.dispatch(session, response);
     await drainAsyncTasks();
 
-    expect(mockRecordFailure).toHaveBeenCalledWith(1, expect.any(Error));
+    expect(mockRecordFailure).not.toHaveBeenCalled();
     expect(mockRecordEndpointFailure).not.toHaveBeenCalled();
   });
 

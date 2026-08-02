@@ -45,6 +45,20 @@ interface VersionlessFallbackState {
   preferVersionlessUrl: boolean;
 }
 
+function applyOutputTokenCap(body: Record<string, unknown>, maximum: number): void {
+  const bounded = Math.max(1, Math.trunc(maximum));
+  for (const key of ["max_tokens", "max_completion_tokens", "max_output_tokens"] as const) {
+    if (key in body) body[key] = bounded;
+  }
+  if (
+    !("max_tokens" in body) &&
+    !("max_completion_tokens" in body) &&
+    !("max_output_tokens" in body)
+  ) {
+    body.max_tokens = bounded;
+  }
+}
+
 const RETRYABLE_HTTP_STATUS_CODES = [400, 404, 405, 415, 422] as const;
 const INVALID_OPENAI_URL_MARKER = /Invalid URL \(POST \/v1\/.+\)/i;
 
@@ -53,6 +67,7 @@ function buildAttemptPlans(config: ProviderTestConfig): AttemptPlan[] {
   if (customPayload) {
     try {
       const parsed = JSON.parse(customPayload) as Record<string, unknown>;
+      if (config.maxOutputTokens !== undefined) applyOutputTokenCap(parsed, config.maxOutputTokens);
       return [
         {
           body: parsed,
@@ -88,9 +103,11 @@ function buildAttemptPlans(config: ProviderTestConfig): AttemptPlan[] {
   }
 
   if (presets.length === 0) {
+    const body = getTestBody(config.providerType, config.model);
+    if (config.maxOutputTokens !== undefined) applyOutputTokenCap(body, config.maxOutputTokens);
     return [
       {
-        body: getTestBody(config.providerType, config.model),
+        body,
         headers: {
           ...getTestHeaders(config.providerType, config.apiKey, config.providerUrl, {
             geminiBearerAuth: config.geminiBearerAuth,
@@ -106,9 +123,11 @@ function buildAttemptPlans(config: ProviderTestConfig): AttemptPlan[] {
 
   return presets.map((preset) => {
     const effectiveModel = config.model ?? preset.defaultModel;
+    const body = getPresetPayload(preset.id, effectiveModel);
+    if (config.maxOutputTokens !== undefined) applyOutputTokenCap(body, config.maxOutputTokens);
     return {
       preset,
-      body: getPresetPayload(preset.id, effectiveModel),
+      body,
       headers: {
         ...getTestHeaders(config.providerType, config.apiKey, config.providerUrl, {
           userAgent: preset.userAgent,

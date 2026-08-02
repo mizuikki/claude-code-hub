@@ -233,6 +233,7 @@ function createSession(requestUrl: URL = new URL("https://example.com/v1/message
   session.setRawCrossProviderFallbackEnabled(
     session.getEndpointPolicy().allowRawCrossProviderFallback
   );
+  session.setRecoveryAuthorityMode("legacy");
 
   return session as ProxySession;
 }
@@ -306,6 +307,35 @@ describe("ProxyForwarder - raw passthrough fallback parity", () => {
 describe("ProxyForwarder - retry limit enforcement", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  test("enforce authority blocks retry after an upstream-committed provider error", async () => {
+    const session = createSession();
+    session.setRecoveryAuthorityMode("enforce");
+    session.setProvider(
+      createProvider({
+        providerType: "claude",
+        providerVendorId: 123,
+        maxRetryAttempts: 3,
+      })
+    );
+    mocks.getPreferredProviderEndpoints.mockResolvedValue([
+      makeEndpoint({
+        id: 1,
+        vendorId: 123,
+        providerType: "claude",
+        url: "https://ep1.example.com",
+      }),
+    ]);
+    vi.mocked(categorizeErrorAsync).mockResolvedValue(ErrorCategory.PROVIDER_ERROR);
+    const doForward = vi.spyOn(
+      ProxyForwarder as unknown as { doForward: (...args: unknown[]) => unknown },
+      "doForward"
+    );
+    doForward.mockRejectedValue(new ProxyError("upstream failed", 500));
+
+    await expect(ProxyForwarder.send(session)).rejects.toMatchObject({ statusCode: 500 });
+    expect(doForward).toHaveBeenCalledTimes(1);
   });
 
   test("endpoints > maxRetry: should only use top N lowest-latency endpoints", async () => {

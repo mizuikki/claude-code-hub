@@ -75,6 +75,17 @@
       "sync_litellm": "クラウド価格表の同期",
       "upsert": "モデル価格更新",
       "delete": "モデル価格削除"
+    },
+    "recovery": {
+      "probe": "復旧プローブを実行",
+      "pause": "復旧自動化を一時停止",
+      "resume": "復旧自動化を再開",
+      "reset": "復旧処理を安全に再起動",
+      "force_open": "復旧状態を強制オープン",
+      "force_close": "復旧状態を強制クローズ",
+      "configuration": {
+        "update": "復旧設定を更新"
+      }
     }
   },
   "detail": {

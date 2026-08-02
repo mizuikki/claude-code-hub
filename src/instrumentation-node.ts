@@ -555,4 +555,11 @@ export async function register() {
 
     logger.info("Development initialization completed");
   }
+
+  const { initializeRecoveryRuntime } = await import("@/lib/recovery/runtime");
+  const recoveryMode = await initializeRecoveryRuntime();
+  if (recoveryMode === "enforce") {
+    const { stopProbeScheduler } = await import("@/lib/circuit-breaker-probe");
+    stopProbeScheduler();
+  }
 }

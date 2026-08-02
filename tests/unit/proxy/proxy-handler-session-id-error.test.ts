@@ -175,6 +175,7 @@ describe("handleProxyRequest - session id on errors", async () => {
     h.earlyResponse = null;
     h.forwardResponse = new Response("ok", { status: 200 });
     h.dispatchedResponse = null;
+    h.session.requestUrl = new URL("http://localhost/v1/messages");
 
     h.session.sessionId = "s_123";
     h.session.messageContext = { id: 1, user: { id: 1, name: "u" }, key: { name: "k" } };

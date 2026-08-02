@@ -232,6 +232,8 @@ export async function createProvider(providerData: CreateProviderData): Promise<
     circuitBreakerOpenDuration: providerData.circuit_breaker_open_duration ?? 1800000,
     circuitBreakerHalfOpenSuccessThreshold:
       providerData.circuit_breaker_half_open_success_threshold ?? 2,
+    recoverySettings: providerData.recovery_settings ?? null,
+    recoveryProbeBudgets: providerData.recovery_probe_budgets ?? null,
     proxyUrl: providerData.proxy_url ?? null,
     proxyFallbackToDirect: providerData.proxy_fallback_to_direct ?? false,
     customHeaders: providerData.custom_headers ?? null,
@@ -319,6 +321,8 @@ export async function createProvider(providerData: CreateProviderData): Promise<
         circuitBreakerFailureThreshold: providers.circuitBreakerFailureThreshold,
         circuitBreakerOpenDuration: providers.circuitBreakerOpenDuration,
         circuitBreakerHalfOpenSuccessThreshold: providers.circuitBreakerHalfOpenSuccessThreshold,
+        recoverySettings: providers.recoverySettings,
+        recoveryProbeBudgets: providers.recoveryProbeBudgets,
         proxyUrl: providers.proxyUrl,
         proxyFallbackToDirect: providers.proxyFallbackToDirect,
         customHeaders: providers.customHeaders,
@@ -711,6 +715,10 @@ export async function updateProvider(
   if (providerData.circuit_breaker_half_open_success_threshold !== undefined)
     dbData.circuitBreakerHalfOpenSuccessThreshold =
       providerData.circuit_breaker_half_open_success_threshold;
+  if (providerData.recovery_settings !== undefined)
+    dbData.recoverySettings = providerData.recovery_settings;
+  if (providerData.recovery_probe_budgets !== undefined)
+    dbData.recoveryProbeBudgets = providerData.recovery_probe_budgets;
   if (providerData.proxy_url !== undefined) dbData.proxyUrl = providerData.proxy_url;
   if (providerData.proxy_fallback_to_direct !== undefined)
     dbData.proxyFallbackToDirect = providerData.proxy_fallback_to_direct;

@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import { getCachedSystemSettings } from "@/lib/config";
 import { logger } from "@/lib/logger";
 import { ProxyStatusTracker } from "@/lib/proxy-status-tracker";
+import { getRecoveryAuthorityMode } from "@/lib/recovery/runtime";
 import { SessionTracker } from "@/lib/session-tracker";
 import { ProxyErrorHandler } from "./proxy/error-handler";
 import { attachSessionIdToErrorResponse } from "./proxy/error-session-id";
@@ -28,6 +29,7 @@ export async function handleProxyRequest(c: Context): Promise<Response> {
       session.setRawCrossProviderFallbackEnabled(
         cachedSystemSettings.allowNonConversationEndpointProviderFallback ?? true
       );
+      session.setRecoveryAuthorityMode?.(getRecoveryAuthorityMode());
     } catch (settingsError) {
       logger.warn(
         "[ProxyHandler] Failed to load proxy system settings, fallback highConcurrency=false and rawCrossProviderFallback=false",
@@ -37,6 +39,7 @@ export async function handleProxyRequest(c: Context): Promise<Response> {
       );
       session.setHighConcurrencyModeEnabled(false);
       session.setRawCrossProviderFallbackEnabled(false);
+      session.setRecoveryAuthorityMode?.("legacy");
     }
 
     // 自动检测请求格式（端点优先，请求体补充）

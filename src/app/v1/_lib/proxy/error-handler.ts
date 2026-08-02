@@ -8,6 +8,7 @@ import {
 import { emitProxyLangfuseTrace } from "@/lib/langfuse/emit-proxy-trace";
 import { logger } from "@/lib/logger";
 import { ProxyStatusTracker } from "@/lib/proxy-status-tracker";
+import { SessionBindingUnavailableError } from "@/lib/recovery/binding-authority";
 import { sanitizeErrorTextForDetail } from "@/lib/utils/upstream-error-detection";
 import { updateMessageRequestDetails, updateMessageRequestDuration } from "@/repository/message";
 import type { SystemSettings } from "@/types/system-config";
@@ -168,6 +169,11 @@ function getRateLimitStatusCode(limitType: string): number {
 
 export class ProxyErrorHandler {
   static async handle(session: ProxySession, error: unknown): Promise<Response> {
+    if (error instanceof SessionBindingUnavailableError) {
+      const response = ProxyResponses.buildError(503, error.code, error.code);
+      response.headers.set("Retry-After", String(error.retryAfterSeconds));
+      return await attachSessionIdToErrorResponse(session.sessionId, response);
+    }
     // 分离两种消息：
     // - clientErrorMessage: 返回给客户端的安全消息（不含供应商名称）
     // - logErrorMessage: 记录到数据库的详细消息（包含供应商名称，便于排查）

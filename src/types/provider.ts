@@ -1,5 +1,9 @@
 // 供应商类型枚举
 
+import type {
+  RecoveryProbeBudgetOverrides,
+  RecoverySettingsOverrides,
+} from "@/lib/recovery/contracts";
 import type { CacheTtlPreference } from "./cache";
 
 export type ProviderType =
@@ -395,6 +399,8 @@ export interface Provider {
   circuitBreakerFailureThreshold: number;
   circuitBreakerOpenDuration: number; // 毫秒
   circuitBreakerHalfOpenSuccessThreshold: number;
+  recoverySettings: RecoverySettingsOverrides | null;
+  recoveryProbeBudgets: RecoveryProbeBudgetOverrides | null;
 
   // 代理配置（支持 HTTP/HTTPS/SOCKS5）
   proxyUrl: string | null;
@@ -505,6 +511,8 @@ export interface ProviderDisplay {
   circuitBreakerFailureThreshold: number;
   circuitBreakerOpenDuration: number; // 毫秒
   circuitBreakerHalfOpenSuccessThreshold: number;
+  recoverySettings: RecoverySettingsOverrides | null;
+  recoveryProbeBudgets: RecoveryProbeBudgetOverrides | null;
   // 代理配置
   proxyUrl: string | null;
   proxyFallbackToDirect: boolean;
@@ -624,6 +632,8 @@ export interface CreateProviderData {
   circuit_breaker_failure_threshold?: number;
   circuit_breaker_open_duration?: number; // 毫秒
   circuit_breaker_half_open_success_threshold?: number;
+  recovery_settings?: RecoverySettingsOverrides | null;
+  recovery_probe_budgets?: RecoveryProbeBudgetOverrides | null;
 
   // 代理配置（支持 HTTP/HTTPS/SOCKS5）
   proxy_url?: string | null;
@@ -711,6 +721,8 @@ export interface UpdateProviderData {
   circuit_breaker_failure_threshold?: number;
   circuit_breaker_open_duration?: number; // 毫秒
   circuit_breaker_half_open_success_threshold?: number;
+  recovery_settings?: RecoverySettingsOverrides | null;
+  recovery_probe_budgets?: RecoveryProbeBudgetOverrides | null;
 
   // 代理配置（支持 HTTP/HTTPS/SOCKS5）
   proxy_url?: string | null;

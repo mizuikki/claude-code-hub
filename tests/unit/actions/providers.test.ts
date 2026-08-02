@@ -16,6 +16,7 @@ const deleteProviderCircuitConfigMock = vi.fn();
 const clearConfigCacheMock = vi.fn();
 const clearProviderStateMock = vi.fn();
 const terminateProviderSessionsBatchMock = vi.fn();
+const restartRecoveryValidationMock = vi.fn();
 
 const revalidatePathMock = vi.fn();
 const emitActionAuditMock = vi.fn();
@@ -60,6 +61,10 @@ vi.mock("@/lib/session-manager", () => ({
     terminateProviderSessionsBatch: terminateProviderSessionsBatchMock,
     terminateStickySessionsForProviders: terminateProviderSessionsBatchMock,
   },
+}));
+
+vi.mock("@/lib/recovery/runtime", () => ({
+  restartRecoveryValidation: restartRecoveryValidationMock,
 }));
 
 vi.mock("@/lib/logger", () => ({
@@ -183,6 +188,7 @@ describe("Provider Actions - Async Optimization", () => {
     publishProviderCacheInvalidationMock.mockResolvedValue(undefined);
     saveProviderCircuitConfigMock.mockResolvedValue(undefined);
     deleteProviderCircuitConfigMock.mockResolvedValue(undefined);
+    restartRecoveryValidationMock.mockResolvedValue({ handled: false });
     clearProviderStateMock.mockResolvedValue(undefined);
     terminateProviderSessionsBatchMock.mockResolvedValue(0);
     updateProviderPrioritiesBatchMock.mockResolvedValue(0);
@@ -678,6 +684,38 @@ describe("Provider Actions - Async Optimization", () => {
       expect(result.ok).toBe(true);
       expect(revalidatePathMock).not.toHaveBeenCalled();
       expect(terminateProviderSessionsBatchMock).toHaveBeenCalledWith([1], "removeProvider");
+    });
+  });
+
+  describe("resetProviderCircuit", () => {
+    it("restarts V2 validation and never force-closes an enforced scope", async () => {
+      restartRecoveryValidationMock.mockResolvedValueOnce({
+        handled: true,
+        result: { code: "applied", epoch: 8, health: "open" },
+      });
+
+      const { resetProviderCircuit } = await import("@/actions/providers");
+      await expect(
+        resetProviderCircuit(7, { expectedEpoch: 7, reason: "operator restart" })
+      ).resolves.toEqual({ ok: true });
+      expect(restartRecoveryValidationMock).toHaveBeenCalledWith({
+        scope: { kind: "provider", providerId: 7 },
+        expectedEpoch: 7,
+        reason: "operator restart",
+      });
+    });
+
+    it("returns a stale epoch conflict from safe validation", async () => {
+      restartRecoveryValidationMock.mockResolvedValueOnce({
+        handled: true,
+        result: { code: "stale_epoch", epoch: 9, health: "open" },
+      });
+
+      const { resetProviderCircuit } = await import("@/actions/providers");
+      await expect(resetProviderCircuit(7, { expectedEpoch: 3 })).resolves.toMatchObject({
+        ok: false,
+        errorCode: "STALE_EPOCH",
+      });
     });
   });
 

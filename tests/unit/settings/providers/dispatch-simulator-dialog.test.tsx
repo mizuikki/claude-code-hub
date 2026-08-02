@@ -145,6 +145,8 @@ describe("DispatchSimulatorDialog", () => {
                 priority: 0,
                 effectivePriority: 0,
                 weight: 1,
+                recoveryBasisPoints: 2500,
+                recoveryAdmitted: true,
               },
             ],
           },
@@ -181,6 +183,8 @@ describe("DispatchSimulatorDialog", () => {
                 effectivePriority: 0,
                 weight: 1,
                 weightPercent: 100,
+                recoveryBasisPoints: 2500,
+                recoveryAdmitted: true,
                 redirectedModel: "glm-4.6",
                 endpointStats: { total: 2, enabled: 2, circuitOpen: 0, available: 2 },
               },
@@ -190,6 +194,12 @@ describe("DispatchSimulatorDialog", () => {
         totalProviders: 1,
         finalCandidateCount: 1,
         selectedPriority: 0,
+        recoveryBucket: 1234,
+        bindingAuthority: "v2_only",
+        effectiveFailbackMode: "safe_auto",
+        failbackCohort: 42,
+        failbackAdmitted: false,
+        failbackSkipReason: "not_failover_binding",
       },
     });
 
@@ -241,6 +251,9 @@ describe("DispatchSimulatorDialog", () => {
     expect(document.body.textContent || "").toContain("Priority Tiers");
     expect(document.body.textContent || "").toContain("Provider A");
     expect(document.body.textContent || "").toContain("glm-4.6");
+    expect(document.body.textContent || "").toContain("Recovery layer bucket: 1234");
+    expect(document.body.textContent || "").toContain("Recovery admitted");
+    expect(document.body.textContent || "").toContain("Recovery threshold: 2500 / 10000");
 
     unmount();
   });

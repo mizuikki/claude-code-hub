@@ -15,6 +15,16 @@ import { logger } from "@/lib/logger";
 import { getEndpointFilterStats } from "@/lib/provider-endpoints/endpoint-selector";
 import { getProviderModelRedirectTarget } from "@/lib/provider-model-redirects";
 import { RateLimitService } from "@/lib/rate-limit";
+import { getSessionBindingRuntime } from "@/lib/recovery/binding-authority";
+import { getCachedRecoveryConfiguration } from "@/lib/recovery/config-cache";
+import { sessionFailbackBucket } from "@/lib/recovery/deterministic-bucket";
+import { evaluateFailbackAdmission } from "@/lib/recovery/failback";
+import {
+  admitRecoveryPriorityLayer,
+  evaluateProviderRecovery,
+} from "@/lib/recovery/routing-admission";
+import { getProductionRecoveryService } from "@/lib/recovery/runtime";
+import { SessionManager } from "@/lib/session-manager";
 import { resolveSystemTimezone } from "@/lib/utils/timezone";
 import { isVendorTypeCircuitOpen } from "@/lib/vendor-type-circuit-breaker";
 import { findAllProvidersFresh } from "@/repository/provider";
@@ -35,6 +45,7 @@ const DispatchSimulatorInputSchema = z.object({
   clientFormat: z.enum(["claude", "openai", "response", "gemini", "gemini-cli"]),
   modelName: z.string().trim().max(255).default(""),
   groupTags: z.array(z.string().trim().min(1).max(255)).max(20).default([]),
+  sessionId: z.string().trim().min(1).max(255).optional(),
 });
 
 const DISPATCH_SIMULATOR_ERROR_CODES = {
@@ -166,6 +177,7 @@ export async function simulateDispatchDecisionTree(
   options?: { systemTimezone?: string }
 ): Promise<DispatchSimulatorResult> {
   const normalizedModelName = input.modelName.trim();
+  const normalizedSessionId = input.sessionId?.trim() || null;
   const groupFilter = getGroupFilterValue(input.groupTags);
   const systemTimezone = options?.systemTimezone ?? (await resolveSystemTimezone());
   const steps: DispatchSimulatorStep[] = [];
@@ -348,13 +360,48 @@ export async function simulateDispatchDecisionTree(
   );
   currentProviders = healthyProviders;
 
-  const priorityTiers = await buildPriorityTiers(
+  const basePriorityTiers = await buildPriorityTiers(
     currentProviders,
     groupFilter,
     normalizedModelName
   );
-  const selectedPriority = priorityTiers.find((tier) => tier.isSelected)?.priority ?? null;
-  const selectedPriorityProviders = priorityTiers.find((tier) => tier.isSelected)?.providers ?? [];
+  const recoveryEvaluations = new Map(
+    await Promise.all(
+      currentProviders.map(
+        async (provider) => [provider.id, await evaluateProviderRecovery(provider)] as const
+      )
+    )
+  );
+  const recoveryAdmission = admitRecoveryPriorityLayer({
+    candidates: currentProviders.map((provider) => ({
+      value: provider,
+      priority: ProxyProviderResolver.resolveEffectivePriority(provider, groupFilter),
+      effectiveBasisPoints: recoveryEvaluations.get(provider.id)?.effectiveBasisPoints ?? 0,
+    })),
+    routeKey: `dispatch-simulator:${input.clientFormat}:${normalizedModelName}:${groupFilter}`,
+  });
+  const admittedIds = new Set(recoveryAdmission.admitted.map((provider) => provider.id));
+  const selectedPriority = recoveryAdmission.priority;
+  const priorityTiers = basePriorityTiers.map((tier) => ({
+    ...tier,
+    isSelected: tier.priority === selectedPriority,
+    providers: tier.providers.map((provider) => ({
+      ...provider,
+      recoveryBasisPoints: recoveryEvaluations.get(provider.id)?.effectiveBasisPoints ?? 0,
+      recoveryAdmitted: admittedIds.has(provider.id),
+      recoveryScopes: [
+        ...(recoveryEvaluations.get(provider.id)?.scopes ?? []),
+        { kind: "endpoint", health: "forward_revalidation", basisPoints: null },
+        ...(normalizedModelName
+          ? [{ kind: "capability", health: "forward_revalidation", basisPoints: null }]
+          : []),
+      ],
+    })),
+  }));
+  const selectedPriorityProviders =
+    priorityTiers
+      .find((tier) => tier.isSelected)
+      ?.providers.filter((provider) => provider.recoveryAdmitted) ?? [];
   const selectedPriorityProviderIds = new Set(
     selectedPriorityProviders.map((provider) => provider.id)
   );
@@ -431,12 +478,67 @@ export async function simulateDispatchDecisionTree(
     note: "endpoint_status_does_not_change_provider_preselection",
   });
 
+  const recoveryConfiguration = await getCachedRecoveryConfiguration();
+  const effectiveFailbackSettings = Object.fromEntries(
+    Object.entries(recoveryConfiguration.failback).map(([key, value]) => [key, value.effective])
+  ) as unknown as import("@/lib/recovery/contracts").SessionFailbackSettings;
+  let failbackAdmission: ReturnType<typeof evaluateFailbackAdmission> = {
+    admitted: false,
+    reason: "stateless",
+  };
+  if (normalizedSessionId) {
+    try {
+      const binding = await SessionManager.getAuthoritativeSessionBindingV2(normalizedSessionId);
+      const origin = binding?.failedOverFromProviderId
+        ? providers.find((provider) => provider.id === binding.failedOverFromProviderId)
+        : null;
+      const originPriority = origin
+        ? ProxyProviderResolver.resolveEffectivePriority(origin, groupFilter)
+        : null;
+      const preferredPriority = Math.min(
+        ...providers
+          .filter((provider) => provider.isEnabled)
+          .map((provider) => ProxyProviderResolver.resolveEffectivePriority(provider, groupFilter))
+      );
+      const originState =
+        origin && getProductionRecoveryService()
+          ? await getProductionRecoveryService()!.getState({
+              kind: "provider",
+              providerId: origin.id,
+            })
+          : null;
+      failbackAdmission = evaluateFailbackAdmission({
+        sessionId: normalizedSessionId,
+        mode: recoveryConfiguration.failback.mode.effective,
+        settings: effectiveFailbackSettings,
+        binding,
+        endpointReplayable: true,
+        requestBlocked: !origin,
+        originHealth:
+          originState?.health === "closed" ? "closed" : originState ? "open" : "unknown",
+        originClosedStableAt: originState?.closedStableAt ?? null,
+        originEligible: Boolean(origin?.isEnabled),
+        originPreferred: originPriority !== null && originPriority === preferredPriority,
+        originEffectivePriority: originPriority,
+        now: Date.now(),
+      });
+    } catch {
+      failbackAdmission = { admitted: false, reason: "coordination_unavailable" };
+    }
+  }
+
   return {
     steps,
     priorityTiers,
     totalProviders: providers.length,
     finalCandidateCount: selectedPriorityProviders.length,
     selectedPriority,
+    recoveryBucket: recoveryAdmission.bucket,
+    bindingAuthority: getSessionBindingRuntime().mode,
+    effectiveFailbackMode: recoveryConfiguration.failback.mode.effective,
+    failbackCohort: normalizedSessionId ? sessionFailbackBucket(normalizedSessionId) : null,
+    failbackAdmitted: failbackAdmission.admitted,
+    failbackSkipReason: failbackAdmission.admitted ? null : failbackAdmission.reason,
   };
 }
 

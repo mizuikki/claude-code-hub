@@ -2,6 +2,9 @@ import "server-only";
 
 import { getEnvConfig } from "@/lib/config/env.schema";
 import { logger } from "@/lib/logger";
+import { createAttemptIdentity, createRequestId } from "@/lib/recovery/attempt-identity";
+import { getRecoveryCompatibilityFacade } from "@/lib/recovery/compatibility-facade";
+import type { AttemptIdentity } from "@/lib/recovery/contracts";
 import {
   deleteVendorTypeCircuitState,
   loadVendorTypeCircuitState,
@@ -105,6 +108,14 @@ function persist(
   });
 }
 
+async function persistAndWait(
+  vendorId: number,
+  providerType: ProviderType,
+  state: VendorTypeCircuitBreakerState
+): Promise<void> {
+  await saveVendorTypeCircuitState(vendorId, providerType, state);
+}
+
 export async function getVendorTypeCircuitInfo(
   vendorId: number,
   providerType: ProviderType
@@ -123,6 +134,11 @@ export async function isVendorTypeCircuitOpen(
   }
 
   const state = await getOrCreateState(vendorId, providerType);
+
+  const facade = getRecoveryCompatibilityFacade();
+  if (facade) {
+    return facade.isOpen({ kind: "vendor-type", vendorId, providerType }, state.circuitState);
+  }
 
   if (state.manualOpen) {
     return true;
@@ -145,7 +161,8 @@ export async function isVendorTypeCircuitOpen(
 export async function recordVendorTypeAllEndpointsTimeout(
   vendorId: number,
   providerType: ProviderType,
-  openDurationMs: number = AUTO_OPEN_DURATION_MS
+  openDurationMs: number = AUTO_OPEN_DURATION_MS,
+  identity?: AttemptIdentity
 ): Promise<void> {
   // 检查端点熔断器开关，供应商类型熔断复用此开关
   if (!getEnvConfig().ENABLE_ENDPOINT_CIRCUIT_BREAKER) {
@@ -163,6 +180,17 @@ export async function recordVendorTypeAllEndpointsTimeout(
   state.circuitOpenUntil = Date.now() + Math.max(1000, openDurationMs);
 
   persist(vendorId, providerType, state);
+
+  const facade = getRecoveryCompatibilityFacade();
+  if (facade) {
+    const requestId = createRequestId();
+    await facade.mirrorOutcome({
+      scope: { kind: "vendor-type", vendorId, providerType },
+      disposition: "transient_failure",
+      identity: identity ?? createAttemptIdentity(requestId, 0, "primary"),
+      durationMs: 0,
+    });
+  }
 }
 
 export async function setVendorTypeCircuitManualOpen(
@@ -184,7 +212,7 @@ export async function setVendorTypeCircuitManualOpen(
     state.lastFailureTime = null;
   }
 
-  persist(vendorId, providerType, state);
+  await persistAndWait(vendorId, providerType, state);
 }
 
 export async function resetVendorTypeCircuit(

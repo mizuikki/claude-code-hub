@@ -333,7 +333,7 @@ describe("ProxyForwarder - openai image constraints", () => {
     expect(session.getOpenAIImageRequestMetadata()!.model).toBe("source-model");
   });
 
-  it("treats multipart stream=true as a real streaming hedge candidate", async () => {
+  it("keeps multipart image resource requests out of streaming hedges", async () => {
     const metadata = await createImageMetadata();
     metadata.parts.splice(2, 0, { name: "stream", kind: "text", value: "true" });
     const session = createSession({
@@ -358,7 +358,7 @@ describe("ProxyForwarder - openai image constraints", () => {
       shouldUseStreamingHedge: (session: ProxySession) => boolean;
     };
 
-    expect(shouldUseStreamingHedge(session)).toBe(true);
+    expect(shouldUseStreamingHedge(session)).toBe(false);
   });
 
   it("strips underscore-prefixed multipart text fields before upstream forwarding", async () => {

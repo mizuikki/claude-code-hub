@@ -46,6 +46,7 @@ interface EditKeyFormProps {
     canLoginWebUi?: boolean;
     providerGroup?: string | null;
     cacheTtlPreference?: "inherit" | "5m" | "1h";
+    sessionFailbackModeOverride?: "inherit" | "sticky" | "safe_auto";
     limit5hUsd?: number | null;
     limit5hResetMode?: "fixed" | "rolling";
     limitDailyUsd?: number | null;
@@ -78,6 +79,7 @@ export function EditKeyForm({ keyData, user, isAdmin = false, onSuccess }: EditK
   const tUI = useTranslations("ui.tagInput");
   const tCommon = useTranslations("common");
   const tErrors = useTranslations("errors");
+  const tRecovery = useTranslations("settings.recovery");
 
   // Load provider group suggestions
   useEffect(() => {
@@ -130,6 +132,7 @@ export function EditKeyForm({ keyData, user, isAdmin = false, onSuccess }: EditK
       canLoginWebUi: keyData?.canLoginWebUi ?? true,
       providerGroup: keyData?.providerGroup || PROVIDER_GROUP.DEFAULT,
       cacheTtlPreference: keyData?.cacheTtlPreference ?? "inherit",
+      sessionFailbackModeOverride: keyData?.sessionFailbackModeOverride ?? "inherit",
       limit5hUsd: keyData?.limit5hUsd ?? null,
       limit5hResetMode: keyData?.limit5hResetMode ?? "rolling",
       limitDailyUsd: keyData?.limitDailyUsd ?? null,
@@ -153,6 +156,7 @@ export function EditKeyForm({ keyData, user, isAdmin = false, onSuccess }: EditK
             expiresAt: data.expiresAt ?? "",
             canLoginWebUi: data.canLoginWebUi,
             cacheTtlPreference: data.cacheTtlPreference,
+            ...(isAdmin ? { sessionFailbackModeOverride: data.sessionFailbackModeOverride } : {}),
             limit5hUsd: data.limit5hUsd,
             limit5hResetMode: data.limit5hResetMode,
             limitDailyUsd: data.limitDailyUsd,
@@ -302,6 +306,30 @@ export function EditKeyForm({ keyData, user, isAdmin = false, onSuccess }: EditK
         </Select>
         <p className="text-xs text-muted-foreground">{tKeyEdit("cacheTtl.description")}</p>
       </div>
+
+      {isAdmin && (
+        <div className="space-y-2">
+          <Label>{tRecovery("failbackMode")}</Label>
+          <Select
+            value={form.values.sessionFailbackModeOverride}
+            onValueChange={(value) =>
+              form.setValue(
+                "sessionFailbackModeOverride",
+                value as "inherit" | "sticky" | "safe_auto"
+              )
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="inherit">{tRecovery("authorities.legacy")}</SelectItem>
+              <SelectItem value="sticky">{tRecovery("sticky")}</SelectItem>
+              <SelectItem value="safe_auto">{tRecovery("safeAuto")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <FormGrid columns={2}>
         <NumberField

@@ -15,6 +15,11 @@ vi.mock("@/repository/system-config", () => ({
 }));
 
 import { ProxySession } from "@/app/v1/_lib/proxy/session";
+import { CLIENT_TRANSPORT_HEADER } from "@/app/v1/_lib/responses-ws/eligibility";
+import {
+  INTERNAL_SECRET_HEADER,
+  WS_FORWARD_FLAG_HEADER,
+} from "@/app/v1/_lib/responses-ws/internal-secret";
 import { findLatestPriceByModel } from "@/repository/model-price";
 import { getSystemSettings } from "@/repository/system-config";
 
@@ -77,11 +82,13 @@ function createSession({
   redirectedModel,
   requestUrl,
   requestMessage,
+  headers,
 }: {
   originalModel?: string | null;
   redirectedModel?: string | null;
   requestUrl?: URL;
   requestMessage?: Record<string, unknown>;
+  headers?: Headers;
 }): ProxySession {
   const session = new (
     ProxySession as unknown as {
@@ -101,7 +108,7 @@ function createSession({
     startTime: Date.now(),
     method: "POST",
     requestUrl: requestUrl ?? new URL("http://localhost/v1/messages"),
-    headers: new Headers(),
+    headers: headers ?? new Headers(),
     headerLog: "",
     request: { message: requestMessage ?? {}, log: "(test)", model: redirectedModel ?? null },
     userAgent: null,
@@ -115,6 +122,43 @@ function createSession({
 
   return session;
 }
+
+describe("ProxySession endpoint recovery policy", () => {
+  it("tightens replayable endpoints when the request contains provider-bound state", () => {
+    const session = createSession({
+      requestUrl: new URL("http://localhost/v1/responses"),
+      requestMessage: { previous_response_id: "response-1" },
+    });
+
+    expect(session.endpointPolicy.migrationSafety).toBe("provider_bound");
+    expect(session.endpointPolicy.retrySafety).toBe("never");
+    expect(session.endpointPolicy.halfOpenEligible).toBe(false);
+  });
+
+  it("tightens a verified WebSocket tunnel request", () => {
+    const previousSecret = process.env.CCH_RESPONSES_WS_INTERNAL_SECRET;
+    process.env.CCH_RESPONSES_WS_INTERNAL_SECRET = "session-policy-secret";
+    try {
+      const headers = new Headers({
+        [CLIENT_TRANSPORT_HEADER]: "websocket",
+        [INTERNAL_SECRET_HEADER]: "session-policy-secret",
+        [WS_FORWARD_FLAG_HEADER]: "1",
+      });
+      const session = createSession({
+        requestUrl: new URL("http://localhost/v1/responses"),
+        headers,
+      });
+
+      expect(session.endpointPolicy.migrationSafety).toBe("provider_bound");
+    } finally {
+      if (previousSecret === undefined) {
+        delete process.env.CCH_RESPONSES_WS_INTERNAL_SECRET;
+      } else {
+        process.env.CCH_RESPONSES_WS_INTERNAL_SECRET = previousSecret;
+      }
+    }
+  });
+});
 
 describe("ProxySession endpoint policy", () => {
   it.each([
@@ -144,7 +188,7 @@ describe("ProxySession endpoint policy", () => {
     expect(isRawPassthroughEndpointPolicy(session.getEndpointPolicy())).toBe(true);
   });
 
-  it("应在 pathname 无法读取时回退到 default policy", () => {
+  it("应在 pathname 无法读取时回退到保守 raw policy", () => {
     const malformedUrl = {
       get pathname() {
         throw new Error("broken pathname");
@@ -157,9 +201,9 @@ describe("ProxySession endpoint policy", () => {
     });
 
     const policy = session.getEndpointPolicy();
-    expect(isRawPassthroughEndpointPolicy(policy)).toBe(false);
-    expect(policy.kind).toBe("default");
-    expect(policy.trackConcurrentRequests).toBe(true);
+    expect(isRawPassthroughEndpointPolicy(policy)).toBe(true);
+    expect(policy.kind).toBe("raw_passthrough");
+    expect(policy.trackConcurrentRequests).toBe(false);
   });
 });
 

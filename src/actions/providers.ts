@@ -358,6 +358,8 @@ export async function getProviders(): Promise<ProviderDisplay[]> {
         circuitBreakerFailureThreshold: provider.circuitBreakerFailureThreshold,
         circuitBreakerOpenDuration: provider.circuitBreakerOpenDuration,
         circuitBreakerHalfOpenSuccessThreshold: provider.circuitBreakerHalfOpenSuccessThreshold,
+        recoverySettings: provider.recoverySettings,
+        recoveryProbeBudgets: provider.recoveryProbeBudgets,
         proxyUrl: provider.proxyUrl,
         proxyFallbackToDirect: provider.proxyFallbackToDirect,
         customHeaders: provider.customHeaders,
@@ -1267,11 +1269,31 @@ export async function getProvidersHealthStatus() {
 /**
  * 手动重置供应商的熔断器状态
  */
-export async function resetProviderCircuit(providerId: number): Promise<ActionResult> {
+export async function resetProviderCircuit(
+  providerId: number,
+  input?: { expectedEpoch?: number; reason?: string }
+): Promise<ActionResult> {
   try {
     const session = await getSession();
     if (session?.user.role !== "admin") {
       return { ok: false, error: "无权限执行此操作" };
+    }
+
+    const { restartRecoveryValidation } = await import("@/lib/recovery/runtime");
+    const recoveryReset = await restartRecoveryValidation({
+      scope: { kind: "provider", providerId },
+      expectedEpoch: input?.expectedEpoch,
+      reason: input?.reason,
+    });
+    if (recoveryReset.handled) {
+      if (recoveryReset.result.code === "applied" || recoveryReset.result.code === "duplicate") {
+        return { ok: true };
+      }
+      return {
+        ok: false,
+        error: recoveryReset.result.code,
+        errorCode: recoveryReset.result.code === "stale_epoch" ? "STALE_EPOCH" : "OPERATION_FAILED",
+      };
     }
 
     resetCircuit(providerId);

@@ -409,15 +409,7 @@ describe("ProxyForwarder - fake 200 HTML body", () => {
     const response = await ProxyForwarder.send(session);
     expect(await response.text()).toContain("ok");
 
-    expect(mocks.recordFailure).toHaveBeenCalledWith(
-      1,
-      expect.objectContaining({ message: "FAKE_200_JSON_ERROR_NON_EMPTY" })
-    );
-
-    const failure = mocks.recordFailure.mock.calls[0]?.[1];
-    expect(failure).toBeInstanceOf(ProxyError);
-    expect((failure as ProxyError).statusCode).toBe(429);
-    expect((failure as ProxyError).upstreamError?.statusCodeInferred).toBe(true);
+    expect(mocks.recordFailure).not.toHaveBeenCalled();
 
     const chain = session.getProviderChain();
     expect(

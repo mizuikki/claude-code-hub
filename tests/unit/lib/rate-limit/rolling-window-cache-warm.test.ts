@@ -11,7 +11,14 @@ const pipeline = {
     pipelineCommands.push(["expire", ...args]);
     return pipeline;
   }),
-  incrbyfloat: vi.fn(() => pipeline),
+  incrbyfloat: vi.fn((...args: unknown[]) => {
+    pipelineCommands.push(["incrbyfloat", ...args]);
+    return pipeline;
+  }),
+  del: vi.fn((...args: unknown[]) => {
+    pipelineCommands.push(["del", ...args]);
+    return pipeline;
+  }),
   exec: vi.fn(async () => {
     pipelineCommands.push(["exec"]);
     return [];
@@ -126,5 +133,38 @@ describe("RateLimitService rolling window cache warm", () => {
     expect(firstCall[2]).toBe("key:1:cost_5h_rolling");
     expect(firstCall[4]).toBe(String(nowMs - 1000));
     expect(firstCall[6]).toBe("123");
+  });
+
+  it("charges recovery probes to provider windows only", async () => {
+    const { RateLimitService } = await import("@/lib/rate-limit");
+
+    await RateLimitService.trackProviderRecoveryProbeCost(7, 0.25, {
+      provider5hResetMode: "rolling",
+      providerResetMode: "fixed",
+      providerResetTime: "00:00",
+      createdAtMs: nowMs,
+    });
+
+    expect(redisClient.eval).toHaveBeenCalledWith(
+      expect.any(String),
+      1,
+      "provider:7:cost_5h_rolling",
+      "0.25",
+      String(nowMs),
+      String(5 * 60 * 60 * 1_000),
+      `probe:${nowMs}`
+    );
+    const costKeys = pipelineCommands
+      .filter((command) => command[0] === "incrbyfloat")
+      .map((command) => String(command[1]));
+    expect(costKeys).toEqual(
+      expect.arrayContaining([
+        "provider:7:cost_daily_0000",
+        "provider:7:cost_weekly",
+        "provider:7:cost_monthly",
+      ])
+    );
+    expect(costKeys.every((key) => key.startsWith("provider:7:"))).toBe(true);
+    expect(pipelineCommands).toContainEqual(["del", "total_cost:provider:7:none"]);
   });
 });

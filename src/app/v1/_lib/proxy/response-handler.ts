@@ -11,6 +11,13 @@ import { logger } from "@/lib/logger";
 import { requestCloudPriceTableSync } from "@/lib/price-sync/cloud-price-updater";
 import { ProxyStatusTracker } from "@/lib/proxy-status-tracker";
 import { RateLimitService } from "@/lib/rate-limit";
+import {
+  commitBufferedMigrationResponse,
+  commitStreamingMigrationResponse,
+  containsCompleteSseEvent,
+} from "@/lib/recovery/failback-commit";
+import { credentialFingerprint } from "@/lib/recovery/provider-limit";
+import { finalizeRecoveryAttempt, getRecoveryProviderLimitService } from "@/lib/recovery/runtime";
 import { deleteLiveChain } from "@/lib/redis/live-chain-store";
 import { SessionManager } from "@/lib/session-manager";
 import { SessionTracker } from "@/lib/session-tracker";
@@ -62,6 +69,17 @@ const STREAM_STATS_HEAD_BYTES = 1024 * 1024;
 const STREAM_STATS_TAIL_BYTES = STREAM_STATS_MAX_BUFFER_BYTES - STREAM_STATS_HEAD_BYTES;
 const STREAM_STATS_TAIL_CHUNKS = 8192;
 const STREAM_STATS_TRUNCATED_MARKER = "\n\n: [cch_truncated]\n\n";
+
+async function applyStreamingProviderCooldown(provider: Provider): Promise<void> {
+  await getRecoveryProviderLimitService()?.applyCooldown({
+    scope: {
+      providerId: provider.id,
+      credentialFingerprint: credentialFingerprint(provider.key),
+    },
+    retryAfterMs: 60_000,
+    reason: "upstream_429",
+  });
+}
 
 type BoundedStreamTextSnapshot = {
   text: string;
@@ -1069,6 +1087,25 @@ async function finalizeDeferredStreamingFinalizationIfNeeded(
     };
   }
 
+  const recoveryIdentity = meta.recoveryIdentity;
+  const finalizeRecovery = async (
+    disposition: "success" | "transient_failure",
+    reason: string,
+    providerOnly = false
+  ) => {
+    const scopes = (session.getRecoveryAttemptScopes?.(recoveryIdentity) ?? []).filter(
+      (scope) => !providerOnly || scope.kind === "provider"
+    );
+    await finalizeRecoveryAttempt({
+      identity: recoveryIdentity,
+      effects: scopes.map((scope) => ({ scope, disposition, reason })),
+      retrySafety: session.getEndpointPolicy().retrySafety,
+      upstreamCommitted: true,
+      downstreamCommitted: true,
+      durationMs: Date.now() - session.startTime,
+    });
+  };
+
   // meta 由 Forwarder 在“拿到 upstream Response 的那一刻”记录，代表真正产生本次流的 provider。
   // 即使 session.provider 在之后被其它逻辑意外修改（极端情况），我们仍以 meta 为准更新：
   // - provider/endpoint 熔断与统计
@@ -1115,10 +1152,13 @@ async function finalizeDeferredStreamingFinalizationIfNeeded(
     await clearSessionBinding();
 
     if (!clientAborted && session.getEndpointPolicy().allowCircuitBreakerAccounting) {
+      await finalizeRecovery("transient_failure", "stream_aborted", true);
       try {
         // 动态导入：避免 proxy 模块与熔断器模块之间潜在的循环依赖。
         const { recordFailure } = await import("@/lib/circuit-breaker");
-        await recordFailure(meta.providerId, new Error(errorMessage ?? "STREAM_ABORTED"));
+        const failure = new Error(errorMessage ?? "STREAM_ABORTED");
+        if (recoveryIdentity) await recordFailure(meta.providerId, failure, recoveryIdentity);
+        else await recordFailure(meta.providerId, failure);
       } catch (cbError) {
         logger.warn("[ResponseHandler] Failed to record streaming failure in circuit breaker", {
           providerId: meta.providerId,
@@ -1168,14 +1208,23 @@ async function finalizeDeferredStreamingFinalizationIfNeeded(
 
     const chainReason = effectiveStatusCode === 404 ? "resource_not_found" : "retry_failed";
 
+    if (effectiveStatusCode === 429) await applyStreamingProviderCooldown(providerForChain);
+
     // 计入熔断器：让后续请求能正确触发故障转移/熔断。
     //
     // 注意：404 语义在 forwarder 中属于 RESOURCE_NOT_FOUND，不计入熔断器（避免把“资源/模型不存在”当作供应商故障）。
     if (effectiveStatusCode !== 404 && session.getEndpointPolicy().allowCircuitBreakerAccounting) {
+      if (effectiveStatusCode !== 429) {
+        await finalizeRecovery("transient_failure", "fake_success_error", true);
+      }
       try {
         // 动态导入：避免 proxy 模块与熔断器模块之间潜在的循环依赖。
-        const { recordFailure } = await import("@/lib/circuit-breaker");
-        await recordFailure(meta.providerId, new Error(detected.code));
+        if (effectiveStatusCode !== 429) {
+          const { recordFailure } = await import("@/lib/circuit-breaker");
+          const failure = new Error(detected.code);
+          if (recoveryIdentity) await recordFailure(meta.providerId, failure, recoveryIdentity);
+          else await recordFailure(meta.providerId, failure);
+        }
       } catch (cbError) {
         logger.warn("[ResponseHandler] Failed to record fake-200 error in circuit breaker", {
           providerId: meta.providerId,
@@ -1227,12 +1276,21 @@ async function finalizeDeferredStreamingFinalizationIfNeeded(
 
     const chainReason = effectiveStatusCode === 404 ? "resource_not_found" : "retry_failed";
 
+    if (effectiveStatusCode === 429) await applyStreamingProviderCooldown(providerForChain);
+
     // 计入熔断器：让后续请求能正确触发故障转移/熔断。
     // 注意：与 forwarder 口径保持一致：404 不计入熔断器（资源不存在不是供应商故障）。
     if (effectiveStatusCode !== 404 && session.getEndpointPolicy().allowCircuitBreakerAccounting) {
+      if (effectiveStatusCode !== 429) {
+        await finalizeRecovery("transient_failure", "upstream_http_error", true);
+      }
       try {
-        const { recordFailure } = await import("@/lib/circuit-breaker");
-        await recordFailure(meta.providerId, new Error(errorMessage));
+        if (effectiveStatusCode !== 429) {
+          const { recordFailure } = await import("@/lib/circuit-breaker");
+          const failure = new Error(errorMessage);
+          if (recoveryIdentity) await recordFailure(meta.providerId, failure, recoveryIdentity);
+          else await recordFailure(meta.providerId, failure);
+        }
       } catch (cbError) {
         logger.warn("[ResponseHandler] Failed to record non-200 error in circuit breaker", {
           providerId: meta.providerId,
@@ -1267,10 +1325,19 @@ async function finalizeDeferredStreamingFinalizationIfNeeded(
   }
 
   // ========== 真正成功（SSE 完整结束且未命中错误判定）==========
+  await finalizeRecovery("success", "stream_complete");
   if (meta.endpointId != null) {
     try {
       const { recordEndpointSuccess } = await import("@/lib/endpoint-circuit-breaker");
-      await recordEndpointSuccess(meta.endpointId);
+      if (recoveryIdentity) {
+        await recordEndpointSuccess(meta.endpointId, {
+          providerId: meta.providerId,
+          identity: recoveryIdentity,
+          durationMs: Date.now() - session.startTime,
+        });
+      } else {
+        await recordEndpointSuccess(meta.endpointId);
+      }
     } catch (endpointError) {
       logger.warn("[ResponseHandler] Failed to record endpoint success (stream finalized)", {
         endpointId: meta.endpointId,
@@ -1282,7 +1349,8 @@ async function finalizeDeferredStreamingFinalizationIfNeeded(
 
   try {
     const { recordSuccess } = await import("@/lib/circuit-breaker");
-    await recordSuccess(meta.providerId);
+    if (recoveryIdentity) await recordSuccess(meta.providerId, recoveryIdentity);
+    else await recordSuccess(meta.providerId);
   } catch (cbError) {
     logger.warn("[ResponseHandler] Failed to record streaming success in circuit breaker", {
       providerId: meta.providerId,
@@ -1378,7 +1446,45 @@ export class ProxyResponseHandler {
       snapshotSession.detailSnapshotResponseBeforeSource = response.clone();
     }
 
-    let fixedResponse = response;
+    let migrationResponse = response;
+    if (session.hasPendingFailbackMigration?.()) {
+      const contentType = response.headers.get("content-type") ?? "";
+      const committer = { commit: () => session.commitPendingFailbackMigration() };
+      if (response.status >= 400) {
+        await session.abortPendingFailbackMigration();
+      } else if (contentType.includes("text/event-stream")) {
+        migrationResponse = await commitStreamingMigrationResponse({
+          upstream: response,
+          committer,
+          isProtocolValidPrefix: (bytes) => {
+            if (!containsCompleteSseEvent(bytes)) return false;
+            return !detectUpstreamErrorFromSseOrJsonText(new TextDecoder().decode(bytes)).isError;
+          },
+        });
+        if (session.hasPendingFailbackMigration?.() && migrationResponse.status === 503) {
+          await session.abortPendingFailbackMigration().catch(() => undefined);
+        }
+        if (migrationResponse.status === 503) return migrationResponse;
+      } else {
+        let valid = false;
+        migrationResponse = await commitBufferedMigrationResponse({
+          upstream: response,
+          committer,
+          validate: ({ status, body }) => {
+            valid =
+              status < 400 &&
+              !detectUpstreamErrorFromSseOrJsonText(new TextDecoder().decode(body)).isError;
+            return valid;
+          },
+        });
+        if (!valid) await session.abortPendingFailbackMigration();
+      }
+      if (migrationResponse.status === 503 && session.hasPendingFailbackMigration?.()) {
+        return migrationResponse;
+      }
+    }
+
+    let fixedResponse = migrationResponse;
     const isCompactionV2 = session.isResponsesCompactionV2?.() ?? false;
     const compactionCapability = session.provider?.codexCompactionV2Capability ?? "unsupported";
     if (
@@ -1387,7 +1493,7 @@ export class ProxyResponseHandler {
     ) {
       try {
         // raw passthrough 端点跳过 ResponseFixer，也跳过其中的 Responses 输出归一化。
-        fixedResponse = await ResponseFixer.process(session, response);
+        fixedResponse = await ResponseFixer.process(session, migrationResponse);
       } catch (error) {
         logger.error(
           "[ResponseHandler] ResponseFixer failed (getCachedSystemSettings/processNonStream)",
@@ -1398,7 +1504,7 @@ export class ProxyResponseHandler {
             requestSequence: session.requestSequence ?? null,
           }
         );
-        fixedResponse = response;
+        fixedResponse = migrationResponse;
       }
     }
 
@@ -1536,7 +1642,7 @@ export class ProxyResponseHandler {
               errorMessageForFinalize = detected.isError ? detected.code : `HTTP ${statusCode}`;
 
               // 计入熔断器
-              if (session.getEndpointPolicy().allowCircuitBreakerAccounting) {
+              if (statusCode !== 429 && session.getEndpointPolicy().allowCircuitBreakerAccounting) {
                 try {
                   const { recordFailure } = await import("@/lib/circuit-breaker");
                   await recordFailure(provider.id, new Error(errorMessageForFinalize));
@@ -1944,7 +2050,8 @@ export class ProxyResponseHandler {
           const errorMessageForDb = detected.isError ? detected.code : `HTTP ${statusCode}`;
 
           // 计入熔断器
-          if (session.getEndpointPolicy().allowCircuitBreakerAccounting) {
+          if (statusCode === 429) await applyStreamingProviderCooldown(provider);
+          if (statusCode !== 429 && session.getEndpointPolicy().allowCircuitBreakerAccounting) {
             try {
               const { recordFailure } = await import("@/lib/circuit-breaker");
               await recordFailure(provider.id, new Error(errorMessageForDb));

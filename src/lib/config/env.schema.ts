@@ -26,6 +26,13 @@ const optionalNumber = (schema: z.ZodNumber) =>
     return val;
   }, schema);
 
+const optionalBoolean = optionalPreprocessed((value) => {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return booleanTransform(value);
+  return value;
+}, z.boolean());
+
 /**
  * 环境变量验证schema
  */
@@ -138,6 +145,41 @@ export const EnvSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   TZ: z.string().default("Asia/Shanghai"),
   ENABLE_CIRCUIT_BREAKER_ON_NETWORK_ERRORS: z.string().default("false").transform(booleanTransform),
+  RECOVERY_AUTHORITY_MODE: z.enum(["legacy", "shadow", "enforce"]).optional(),
+  SESSION_BINDING_AUTHORITY_MODE: z
+    .enum(["legacy", "shadow", "v2_dual_write", "v2_only"])
+    .optional(),
+  RECOVERY_OPEN_DURATION_MS: optionalNumber(z.number().int().positive()),
+  RECOVERY_WINDOW_DURATION_MS: optionalNumber(z.number().int().positive()),
+  RECOVERY_BUCKET_DURATION_MS: optionalNumber(z.number().int().positive()),
+  RECOVERY_MINIMUM_REAL_OUTCOMES: optionalNumber(z.number().int().positive()),
+  RECOVERY_FAILURE_THRESHOLD: optionalNumber(z.number().int().positive()),
+  RECOVERY_MAXIMUM_FAILURE_RATE: optionalNumber(z.number().min(0).max(1)),
+  RECOVERY_SLOW_CALL_DURATION_MS: optionalNumber(z.number().int().positive()),
+  RECOVERY_MAXIMUM_SLOW_CALL_RATE: optionalNumber(z.number().min(0).max(1)),
+  RECOVERY_CONSECUTIVE_HARD_5XX_THRESHOLD: optionalNumber(z.number().int().positive()),
+  RECOVERY_RAMP_DURATION_MS: optionalNumber(z.number().int().positive()),
+  RECOVERY_STABLE_DURATION_MS: optionalNumber(z.number().int().positive()),
+  RECOVERY_HALF_OPEN_MAX_CONCURRENCY: optionalNumber(z.number().int().positive()),
+  RECOVERY_HALF_OPEN_SUCCESS_THRESHOLD: optionalNumber(z.number().int().positive()),
+  RECOVERY_STATE_RETENTION_MS: optionalNumber(z.number().int().positive()),
+  RECOVERY_PASSIVE_HALF_OPEN_ENABLED: optionalBoolean,
+  RECOVERY_TRAFFIC_ENABLED: optionalBoolean,
+  RECOVERY_ACTIVE_PROBES_ENABLED: optionalBoolean,
+  ENABLE_SMART_PROBING: optionalBoolean,
+  RECOVERY_PROBE_SAFE_MODEL: z.string().trim().min(1).max(200).optional(),
+  RECOVERY_PROBE_GLOBAL_CONCURRENCY: optionalNumber(z.number().int().positive()),
+  RECOVERY_PROBE_PROVIDER_CONCURRENCY: optionalNumber(z.number().int().positive()),
+  RECOVERY_PROBE_REQUESTS_PER_MINUTE: optionalNumber(z.number().int().positive()),
+  RECOVERY_PROBE_MAX_TOKENS: optionalNumber(z.number().int().positive()),
+  RECOVERY_PROBE_TIMEOUT_MS: optionalNumber(z.number().int().positive()),
+  RECOVERY_PROBE_DAILY_COST_USD: optionalNumber(z.number().positive()),
+  SESSION_FAILBACK_MODE: z.enum(["sticky", "safe_auto"]).optional(),
+  SESSION_FAILBACK_DELAY_MS: optionalNumber(z.number().int().nonnegative()),
+  SESSION_FAILBACK_RETRY_COOLDOWN_MS: optionalNumber(z.number().int().nonnegative()),
+  SESSION_FAILBACK_ROLLOUT_PERCENT: optionalNumber(z.number().int().min(0).max(100)),
+  SESSION_FAILBACK_MAX_CONCURRENT_MIGRATIONS: optionalNumber(z.number().int().positive()),
+  SESSION_FAILBACK_MIGRATION_WAIT_MS: optionalNumber(z.number().int().min(1).max(10_000)),
   // 端点级别熔断器开关
   // - false (默认)：禁用端点熔断器，所有端点均可使用
   // - true：启用端点熔断器，连续失败的端点会被临时屏蔽

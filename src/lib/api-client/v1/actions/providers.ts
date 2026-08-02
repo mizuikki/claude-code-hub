@@ -109,9 +109,12 @@ export function getProvidersHealthStatus(): Promise<ProviderHealthStatus> {
   return apiGet<ProviderHealthStatus>("/api/v1/providers/health", dashboardCompatOptions);
 }
 
-export function resetProviderCircuit(providerId: number) {
+export function resetProviderCircuit(
+  providerId: number,
+  input?: { expectedEpoch?: number; reason?: string }
+) {
   return toActionResult(
-    apiPost(`/api/v1/providers/${providerId}/circuit:reset`, undefined, dashboardCompatOptions)
+    apiPost(`/api/v1/providers/${providerId}/circuit:reset`, input, dashboardCompatOptions)
   );
 }
 

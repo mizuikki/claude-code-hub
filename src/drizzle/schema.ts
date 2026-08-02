@@ -21,6 +21,15 @@ import type { AllowedModelRuleInput, ProviderModelRedirectRule, ProviderType } f
 import type { FilterOperation } from "@/lib/request-filter-types";
 import type { IpExtractionConfig } from "@/types/ip-extraction";
 import type { AuditCategory } from "@/types/audit-log";
+import type {
+  RecoveryAuthorityMode,
+  RecoveryProbeBudgetOverrides,
+  RecoveryScope,
+  RecoverySettingsOverrides,
+  SessionBindingAuthorityMode,
+  SessionFailbackMode,
+  SessionFailbackSettingsOverrides,
+} from "@/lib/recovery/contracts";
 
 // Enums
 export const dailyResetModeEnum = pgEnum('daily_reset_mode', ['fixed', 'rolling']);
@@ -140,6 +149,10 @@ export const keys = pgTable('keys', {
 
   // Cache TTL override：null/NULL 表示遵循供应商或客户端请求
   cacheTtlPreference: varchar('cache_ttl_preference', { length: 10 }),
+
+  // null means inherit the system failback mode.
+  sessionFailbackModeOverride: varchar('session_failback_mode_override', { length: 20 })
+    .$type<SessionFailbackMode>(),
 
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
@@ -281,6 +294,10 @@ export const providers = pgTable('providers', {
   circuitBreakerFailureThreshold: integer('circuit_breaker_failure_threshold').default(5),
   circuitBreakerOpenDuration: integer('circuit_breaker_open_duration').default(1800000), // 30分钟（毫秒）
   circuitBreakerHalfOpenSuccessThreshold: integer('circuit_breaker_half_open_success_threshold').default(2),
+
+  // V2 recovery policy overrides remain nullable and never materialize code defaults.
+  recoverySettings: jsonb('recovery_settings').$type<RecoverySettingsOverrides>(),
+  recoveryProbeBudgets: jsonb('recovery_probe_budgets').$type<RecoveryProbeBudgetOverrides>(),
 
   // 代理配置（支持 HTTP/HTTPS/SOCKS5）
   proxyUrl: varchar('proxy_url', { length: 512 }),
@@ -467,6 +484,23 @@ export const providerEndpointProbeLogs = pgTable('provider_endpoint_probe_logs',
     table.createdAt.desc()
   ),
   providerEndpointProbeLogsCreatedAtIdx: index('idx_provider_endpoint_probe_logs_created_at').on(table.createdAt),
+}));
+
+export const recoveryProbeLedger = pgTable('recovery_probe_ledger', {
+  id: serial('id').primaryKey(),
+  providerId: integer('provider_id').notNull().references(() => providers.id, { onDelete: 'cascade' }),
+  scopeHash: varchar('scope_hash', { length: 64 }).notNull(),
+  model: varchar('model', { length: 128 }).notNull(),
+  inputTokens: integer('input_tokens').notNull().default(0),
+  outputTokens: integer('output_tokens').notNull().default(0),
+  costUsd: numeric('cost_usd', { precision: 21, scale: 15 }),
+  costUnknown: boolean('cost_unknown').notNull().default(false),
+  succeeded: boolean('succeeded').notNull(),
+  durationMs: integer('duration_ms').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  recoveryProbeLedgerProviderCreatedAtIdx: index('idx_recovery_probe_ledger_provider_created_at').on(table.providerId, table.createdAt.desc()),
+  recoveryProbeLedgerScopeCreatedAtIdx: index('idx_recovery_probe_ledger_scope_created_at').on(table.scopeHash, table.createdAt.desc()),
 }));
 
 // Message Request table
@@ -928,9 +962,37 @@ export const systemSettings = pgTable('system_settings', {
     .notNull()
     .default(5),
 
+  // Recovery and binding rollout controls are intentionally nullable for existing installations.
+  recoveryAuthorityMode: varchar('recovery_authority_mode', { length: 20 })
+    .$type<RecoveryAuthorityMode>(),
+  sessionBindingAuthorityMode: varchar('session_binding_authority_mode', { length: 20 })
+    .$type<SessionBindingAuthorityMode>(),
+  recoverySettings: jsonb('recovery_settings').$type<RecoverySettingsOverrides>(),
+  recoveryProbeBudgets: jsonb('recovery_probe_budgets').$type<RecoveryProbeBudgetOverrides>(),
+  sessionFailbackSettings: jsonb('session_failback_settings')
+    .$type<SessionFailbackSettingsOverrides>(),
+
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 });
+
+// Durable strictness-only evidence captured while Redis recovery coordination is unavailable.
+export const degradedRecoveryEvidence = pgTable('degraded_recovery_evidence', {
+  scopeHash: varchar('scope_hash', { length: 64 }).primaryKey(),
+  scope: jsonb('scope').$type<RecoveryScope>().notNull(),
+  observedAt: timestamp('observed_at', { withTimezone: true }).notNull(),
+  failureClass: varchar('failure_class', { length: 64 }).notNull(),
+  sourceInstanceId: varchar('source_instance_id', { length: 128 }).notNull(),
+  evidenceCount: integer('evidence_count').notNull().default(1),
+  reconciledAt: timestamp('reconciled_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  degradedRecoveryPendingIdx: index('idx_degraded_recovery_evidence_pending').on(
+    table.reconciledAt,
+    table.observedAt
+  ),
+}));
 
 // Notification Settings table - Webhook 通知配置
 export const notificationSettings = pgTable('notification_settings', {

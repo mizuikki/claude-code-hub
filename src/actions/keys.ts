@@ -124,6 +124,7 @@ export async function addKey(data: {
   limitConcurrentSessions?: number;
   providerGroup?: string | null;
   cacheTtlPreference?: "inherit" | "5m" | "1h";
+  sessionFailbackModeOverride?: "inherit" | "sticky" | "safe_auto";
 }): Promise<ActionResult<{ id: number; generatedKey: string; name: string }>> {
   try {
     // NOTE(#400): providerGroup 安全模型（废弃 null 语义）：
@@ -198,6 +199,7 @@ export async function addKey(data: {
       limitConcurrentSessions: data.limitConcurrentSessions,
       providerGroup: providerGroupForKey,
       cacheTtlPreference: data.cacheTtlPreference,
+      sessionFailbackModeOverride: data.sessionFailbackModeOverride,
     });
 
     // 检查是否存在同名的生效key
@@ -367,6 +369,10 @@ export async function addKey(data: {
       limit_concurrent_sessions: validatedData.limitConcurrentSessions,
       provider_group: validatedData.providerGroup,
       cache_ttl_preference: validatedData.cacheTtlPreference,
+      session_failback_mode_override:
+        isAdmin && validatedData.sessionFailbackModeOverride !== "inherit"
+          ? validatedData.sessionFailbackModeOverride
+          : null,
     });
 
     // 自动同步用户分组（用户分组 = Key 分组并集）
@@ -444,6 +450,7 @@ export async function editKey(
     limitConcurrentSessions?: number;
     providerGroup?: string | null;
     cacheTtlPreference?: "inherit" | "5m" | "1h";
+    sessionFailbackModeOverride?: "inherit" | "sticky" | "safe_auto";
   }
 ): Promise<ActionResult> {
   try {
@@ -670,6 +677,14 @@ export async function editKey(
           }
         : {}),
       cache_ttl_preference: validatedData.cacheTtlPreference,
+      ...(isAdmin
+        ? {
+            session_failback_mode_override:
+              validatedData.sessionFailbackModeOverride === "inherit"
+                ? null
+                : validatedData.sessionFailbackModeOverride,
+          }
+        : {}),
     });
 
     // 自动同步用户分组（用户分组 = Key 分组并集）

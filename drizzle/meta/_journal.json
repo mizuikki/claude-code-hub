@@ -785,6 +785,20 @@
       "when": 1783778490703,
       "tag": "0111_tearful_wild_pack",
       "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1785593310099,
+      "tag": "0112_high_silverclaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1785596090738,
+      "tag": "0113_modern_blindfold",
+      "breakpoints": true
     }
   ]
 }

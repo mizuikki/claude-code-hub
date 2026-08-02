@@ -4,7 +4,7 @@ import { fromZonedTime } from "date-fns-tz";
 import type { SQL } from "drizzle-orm";
 import { and, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { db } from "@/drizzle/db";
-import { keys, messageRequest, usageLedger } from "@/drizzle/schema";
+import { keys, messageRequest, recoveryProbeLedger, usageLedger } from "@/drizzle/schema";
 import { TTLMap } from "@/lib/cache/ttl-map";
 import { getTimeRangeForPeriodWithMode } from "@/lib/rate-limit/time-utils";
 import { resolveSystemTimezone } from "@/lib/utils/timezone";
@@ -705,18 +705,28 @@ export async function sumProviderTotalCost(
   const effectiveStart =
     resetAt instanceof Date && !Number.isNaN(resetAt.getTime()) ? resetAt : null;
 
-  const result = await db
-    .select({ total: sql<number>`COALESCE(SUM(${usageLedger.costUsd}), 0)` })
-    .from(usageLedger)
-    .where(
-      and(
-        eq(usageLedger.finalProviderId, providerId),
-        LEDGER_BILLING_CONDITION,
-        ...(effectiveStart ? [gte(usageLedger.createdAt, effectiveStart)] : [])
-      )
-    );
-
-  return Number(result[0]?.total || 0);
+  const [usage, probes] = await Promise.all([
+    db
+      .select({ total: sql<number>`COALESCE(SUM(${usageLedger.costUsd}), 0)` })
+      .from(usageLedger)
+      .where(
+        and(
+          eq(usageLedger.finalProviderId, providerId),
+          LEDGER_BILLING_CONDITION,
+          ...(effectiveStart ? [gte(usageLedger.createdAt, effectiveStart)] : [])
+        )
+      ),
+    db
+      .select({ total: sql<number>`COALESCE(SUM(${recoveryProbeLedger.costUsd}), 0)` })
+      .from(recoveryProbeLedger)
+      .where(
+        and(
+          eq(recoveryProbeLedger.providerId, providerId),
+          ...(effectiveStart ? [gte(recoveryProbeLedger.createdAt, effectiveStart)] : [])
+        )
+      ),
+  ]);
+  return Number(usage[0]?.total || 0) + Number(probes[0]?.total || 0);
 }
 
 /**
@@ -986,24 +996,40 @@ export async function findProviderCostEntriesInTimeRange(
   startTime: Date,
   endTime: Date
 ): Promise<CostEntryInTimeRange[]> {
-  const rows = await db
-    .select({
-      id: messageRequest.id,
-      createdAt: messageRequest.createdAt,
-      costUsd: messageRequest.costUsd,
-    })
-    .from(messageRequest)
-    .where(
-      and(
-        eq(messageRequest.providerId, providerId),
-        gte(messageRequest.createdAt, startTime),
-        lt(messageRequest.createdAt, endTime),
-        isNull(messageRequest.deletedAt),
-        EXCLUDE_WARMUP_CONDITION
-      )
-    );
+  const [rows, probeRows] = await Promise.all([
+    db
+      .select({
+        id: messageRequest.id,
+        createdAt: messageRequest.createdAt,
+        costUsd: messageRequest.costUsd,
+      })
+      .from(messageRequest)
+      .where(
+        and(
+          eq(messageRequest.providerId, providerId),
+          gte(messageRequest.createdAt, startTime),
+          lt(messageRequest.createdAt, endTime),
+          isNull(messageRequest.deletedAt),
+          EXCLUDE_WARMUP_CONDITION
+        )
+      ),
+    db
+      .select({
+        id: recoveryProbeLedger.id,
+        createdAt: recoveryProbeLedger.createdAt,
+        costUsd: recoveryProbeLedger.costUsd,
+      })
+      .from(recoveryProbeLedger)
+      .where(
+        and(
+          eq(recoveryProbeLedger.providerId, providerId),
+          gte(recoveryProbeLedger.createdAt, startTime),
+          lt(recoveryProbeLedger.createdAt, endTime)
+        )
+      ),
+  ]);
 
-  return rows
+  return [...rows, ...probeRows.map((row) => ({ ...row, id: -row.id }))]
     .map((row) => {
       if (!row.createdAt) return null;
       const costUsd = Number(row.costUsd || 0);
@@ -1209,17 +1235,28 @@ export async function sumProviderCostInTimeRange(
   startTime: Date,
   endTime: Date
 ): Promise<number> {
-  const result = await db
-    .select({ total: sql<number>`COALESCE(SUM(${usageLedger.costUsd}), 0)` })
-    .from(usageLedger)
-    .where(
-      and(
-        eq(usageLedger.finalProviderId, providerId),
-        gte(usageLedger.createdAt, startTime),
-        lt(usageLedger.createdAt, endTime),
-        LEDGER_BILLING_CONDITION
-      )
-    );
-
-  return Number(result[0]?.total || 0);
+  const [usage, probes] = await Promise.all([
+    db
+      .select({ total: sql<number>`COALESCE(SUM(${usageLedger.costUsd}), 0)` })
+      .from(usageLedger)
+      .where(
+        and(
+          eq(usageLedger.finalProviderId, providerId),
+          gte(usageLedger.createdAt, startTime),
+          lt(usageLedger.createdAt, endTime),
+          LEDGER_BILLING_CONDITION
+        )
+      ),
+    db
+      .select({ total: sql<number>`COALESCE(SUM(${recoveryProbeLedger.costUsd}), 0)` })
+      .from(recoveryProbeLedger)
+      .where(
+        and(
+          eq(recoveryProbeLedger.providerId, providerId),
+          gte(recoveryProbeLedger.createdAt, startTime),
+          lt(recoveryProbeLedger.createdAt, endTime)
+        )
+      ),
+  ]);
+  return Number(usage[0]?.total || 0) + Number(probes[0]?.total || 0);
 }

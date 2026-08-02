@@ -93,6 +93,8 @@ export interface ProviderTestConfig {
   successContains?: string;
   /** Request timeout in ms (default: 10000) */
   timeoutMs?: number;
+  /** Maximum output tokens for a bounded functional probe. */
+  maxOutputTokens?: number;
   /** Send the Gemini key as Authorization Bearer instead of x-goog-api-key (JSON credentials) */
   geminiBearerAuth?: boolean;
 

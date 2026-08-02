@@ -16,6 +16,7 @@ import { providerEndpointsRouter } from "../resources/provider-endpoints/router"
 import { providerGroupsRouter } from "../resources/provider-groups/router";
 import { providersRouter } from "../resources/providers/router";
 import { publicRouter } from "../resources/public/router";
+import { recoveryRouter } from "../resources/recovery/router";
 import { requestFiltersRouter } from "../resources/request-filters/router";
 import { sensitiveWordsRouter } from "../resources/sensitive-words/router";
 import { sessionsRouter } from "../resources/sessions/router";
@@ -143,6 +144,7 @@ app.route("/", systemRouter);
 app.route("/", sensitiveWordsRouter);
 app.route("/", errorRulesRouter);
 app.route("/", requestFiltersRouter);
+app.route("/", recoveryRouter);
 app.route("/", publicRouter);
 app.route("/", providerGroupsRouter);
 app.route("/", adminUserInsightsRouter);

@@ -30,6 +30,17 @@ import {
 } from "@/lib/provider-endpoints/endpoint-selector";
 import { getGlobalAgentPool, getProxyAgentForProvider } from "@/lib/proxy-agent";
 import { RateLimitService } from "@/lib/rate-limit/service";
+import { mayRetryAttempt } from "@/lib/recovery/attempt-finalizer";
+import type { AttemptIdentity, RecoveryScope } from "@/lib/recovery/contracts";
+import { classifyRecoveryEffects, type RecoveryFaultClass } from "@/lib/recovery/error-classifier";
+import { credentialFingerprint } from "@/lib/recovery/provider-limit";
+import {
+  finalizeRecoveryAttempt,
+  getRecoveryProviderLimitService,
+  prepareCompositeRecoveryAttempt,
+} from "@/lib/recovery/runtime";
+import { fingerprintDirectEndpoint, sortRecoveryScopes } from "@/lib/recovery/scope";
+import type { DerivedRecoveryScopes } from "@/lib/recovery/scope-derivation";
 import { SessionManager } from "@/lib/session-manager";
 import {
   detectUpstreamErrorFromSseOrJsonText,
@@ -1223,6 +1234,7 @@ export class ProxyForwarder {
     let currentProvider = session.provider;
     const failedProviderIds: number[] = []; // 记录已失败的供应商ID
     let totalProvidersAttempted = 0; // 已尝试的供应商数量（用于日志）
+    let upstreamAttemptSequence = 0;
 
     // ========== 外层循环：供应商切换（最多 MAX_PROVIDER_SWITCHES 次）==========
     while (totalProvidersAttempted < MAX_PROVIDER_SWITCHES) {
@@ -1425,6 +1437,16 @@ export class ProxyForwarder {
       // ========== 内层循环：重试当前供应商（根据配置最多尝试 maxAttemptsPerProvider 次）==========
       while (attemptCount < maxAttemptsPerProvider) {
         attemptCount++;
+        upstreamAttemptSequence++;
+        const recoveryAttemptIdentity = session.getRecoveryAttemptIdentity(
+          upstreamAttemptSequence,
+          upstreamAttemptSequence === 1 ? "primary" : "retry"
+        );
+        const circuitRecoveryIdentity =
+          session.getRecoveryAuthorityMode?.() === "shadow" ||
+          session.getRecoveryAuthorityMode?.() === "enforce"
+            ? recoveryAttemptIdentity
+            : undefined;
 
         // Use currentEndpointIndex for endpoint selection (sticky behavior)
         // - currentEndpointIndex is advanced only on SYSTEM_ERROR (network errors)
@@ -1446,7 +1468,9 @@ export class ProxyForwarder {
             currentProvider,
             activeEndpoint.baseUrl,
             endpointAudit,
-            attemptCount
+            attemptCount,
+            false,
+            recoveryAttemptIdentity
           );
 
           // ========== 空响应检测（仅非流式）==========
@@ -1475,6 +1499,7 @@ export class ProxyForwarder {
               providerName: currentProvider.name,
               providerPriority: currentProvider.priority || 0,
               attemptNumber: attemptCount,
+              recoveryIdentity: recoveryAttemptIdentity,
               totalProvidersAttempted,
               isFirstAttempt: totalProvidersAttempted === 1 && attemptCount === 1,
               isFailoverSuccess: totalProvidersAttempted > 1,
@@ -1659,12 +1684,43 @@ export class ProxyForwarder {
           }
 
           // ========== 成功分支 ==========
-          if (activeEndpoint.endpointId != null) {
-            await recordEndpointSuccess(activeEndpoint.endpointId);
+          if (!isSSE) {
+            await finalizeRecoveryAttempt({
+              identity: recoveryAttemptIdentity,
+              effects: (session.getRecoveryAttemptScopes?.(recoveryAttemptIdentity) ?? []).map(
+                (scope) => ({
+                  scope,
+                  disposition: "success",
+                  reason: "upstream_success",
+                })
+              ),
+              retrySafety: endpointPolicy.retrySafety,
+              upstreamCommitted: true,
+              downstreamCommitted: false,
+              durationMs: Date.now() - session.startTime,
+            });
+          }
+          if (
+            activeEndpoint.endpointId != null &&
+            (!isSSE || endpointPolicy.recoveryEvidence === "connectivity")
+          ) {
+            if (circuitRecoveryIdentity) {
+              await recordEndpointSuccess(activeEndpoint.endpointId, {
+                providerId: currentProvider.id,
+                identity: circuitRecoveryIdentity,
+                durationMs: Date.now() - session.startTime,
+              });
+            } else {
+              await recordEndpointSuccess(activeEndpoint.endpointId);
+            }
           }
 
-          if (shouldAccountCircuitBreaker) {
-            recordSuccess(currentProvider.id);
+          if (shouldAccountCircuitBreaker && !isSSE) {
+            if (circuitRecoveryIdentity) {
+              await recordSuccess(currentProvider.id, circuitRecoveryIdentity);
+            } else {
+              await recordSuccess(currentProvider.id);
+            }
           }
 
           // ⭐ 成功后绑定 session 到供应商（智能绑定策略）
@@ -1738,6 +1794,10 @@ export class ProxyForwarder {
           return response; // ⭐ 成功：立即返回，结束所有循环
         } catch (error) {
           lastError = error as Error;
+          if (session.hasPendingFailbackMigration?.()) {
+            await session.abortPendingFailbackMigration();
+            attemptCount = maxAttemptsPerProvider;
+          }
 
           // ⭐ 1. 分类错误（供应商错误 vs 系统错误 vs 客户端中断）
           // 使用异步版本确保错误规则已加载
@@ -1748,6 +1808,97 @@ export class ProxyForwarder {
               : lastError.message;
 
           const isTimeoutError = lastError instanceof ProxyError && lastError.statusCode === 524;
+          const recoveryAttemptScopes =
+            session.getRecoveryAttemptScopes?.(recoveryAttemptIdentity) ?? [];
+          const recoveryFaultClass: RecoveryFaultClass =
+            errorCategory === ErrorCategory.SYSTEM_ERROR
+              ? "endpoint_connectivity"
+              : errorCategory === ErrorCategory.RESOURCE_NOT_FOUND
+                ? "capability"
+                : errorCategory === ErrorCategory.PROVIDER_ERROR
+                  ? lastError instanceof ProxyError && lastError.statusCode === 429
+                    ? "rate_limit"
+                    : lastError instanceof ProxyError &&
+                        (lastError.statusCode === 401 || lastError.statusCode === 403)
+                      ? "provider_credential"
+                      : "provider_service"
+                  : errorCategory === ErrorCategory.CLIENT_ABORT ||
+                      errorCategory === ErrorCategory.NON_RETRYABLE_CLIENT_ERROR
+                    ? "client"
+                    : "local";
+          const providerScope = recoveryAttemptScopes.find((scope) => scope.kind === "provider");
+          const endpointScope = recoveryAttemptScopes.find((scope) => scope.kind === "endpoint");
+          const vendorTypeScope = recoveryAttemptScopes.find(
+            (scope) => scope.kind === "vendor-type"
+          );
+          const capabilityScope = recoveryAttemptScopes.find(
+            (scope) => scope.kind === "capability"
+          );
+          const derivedScopes: DerivedRecoveryScopes | null =
+            providerScope?.kind === "provider" && endpointScope?.kind === "endpoint"
+              ? {
+                  ordered: recoveryAttemptScopes,
+                  provider: providerScope,
+                  endpoint: endpointScope,
+                  vendorType:
+                    vendorTypeScope?.kind === "vendor-type"
+                      ? vendorTypeScope
+                      : {
+                          kind: "vendor-type",
+                          vendorId: currentProvider.providerVendorId ?? 0,
+                          providerType: currentProvider.providerType,
+                        },
+                  capability: capabilityScope?.kind === "capability" ? capabilityScope : null,
+                }
+              : null;
+          const classifiedRecovery = derivedScopes
+            ? classifyRecoveryEffects({
+                faultClass: recoveryFaultClass,
+                policy: endpointPolicy,
+                scopes: derivedScopes,
+                providerLimitScope: {
+                  providerId: currentProvider.id,
+                  credentialFingerprint: credentialFingerprint(currentProvider.key),
+                },
+                retryAfterMs:
+                  recoveryFaultClass === "rate_limit" && lastError instanceof ProxyError
+                    ? (lastError.upstreamError?.retryAfterMs ?? 60_000)
+                    : null,
+                reason:
+                  recoveryFaultClass === "rate_limit"
+                    ? "upstream_429"
+                    : errorCategory === ErrorCategory.RESOURCE_NOT_FOUND
+                      ? "capability_not_found"
+                      : isTimeoutError
+                        ? "upstream_timeout"
+                        : "upstream_failure",
+              })
+            : { effects: [], providerLimit: null };
+          if (classifiedRecovery.providerLimit?.disposition === "cooldown") {
+            await getRecoveryProviderLimitService()?.applyCooldown(
+              classifiedRecovery.providerLimit
+            );
+          }
+          const classifiedByScope = new Map(
+            classifiedRecovery.effects.map(
+              (effect) => [JSON.stringify(effect.scope), effect] as const
+            )
+          );
+          await finalizeRecoveryAttempt({
+            identity: recoveryAttemptIdentity,
+            effects: recoveryAttemptScopes.map(
+              (scope) =>
+                classifiedByScope.get(JSON.stringify(scope)) ?? {
+                  scope,
+                  disposition: "ignored" as const,
+                  reason: "unaffected_scope",
+                }
+            ),
+            retrySafety: endpointPolicy.retrySafety,
+            upstreamCommitted: true,
+            downstreamCommitted: false,
+            durationMs: Date.now() - session.startTime,
+          });
 
           if (isTimeoutError) {
             timedOutEndpointKeys.add(
@@ -1757,9 +1908,29 @@ export class ProxyForwarder {
 
           if (activeEndpoint.endpointId != null) {
             if (isTimeoutError || errorCategory === ErrorCategory.SYSTEM_ERROR) {
-              await recordEndpointFailure(activeEndpoint.endpointId, lastError);
+              if (circuitRecoveryIdentity) {
+                await recordEndpointFailure(activeEndpoint.endpointId, lastError, {
+                  providerId: currentProvider.id,
+                  identity: circuitRecoveryIdentity,
+                  durationMs: Date.now() - session.startTime,
+                });
+              } else {
+                await recordEndpointFailure(activeEndpoint.endpointId, lastError);
+              }
             }
           }
+
+          const networkCode = (lastError as Error & { code?: string }).code;
+          const provenPreCommitFailure =
+            errorCategory === ErrorCategory.SYSTEM_ERROR &&
+            (networkCode === "ENOTFOUND" || networkCode === "ECONNREFUSED");
+          const recoveryRetryAllowed =
+            session.getRecoveryAuthorityMode?.() !== "enforce" ||
+            mayRetryAttempt({
+              retrySafety: endpointPolicy.retrySafety,
+              upstreamCommitted: !provenPreCommitFailure,
+              downstreamCommitted: false,
+            });
 
           // ⭐ 2. 客户端中断处理（不计入熔断器，不重试，立即返回）
           if (errorCategory === ErrorCategory.CLIENT_ABORT) {
@@ -1789,6 +1960,29 @@ export class ProxyForwarder {
               },
             });
 
+            throw lastError;
+          }
+
+          if (!recoveryRetryAllowed) {
+            if (
+              errorCategory === ErrorCategory.PROVIDER_ERROR &&
+              (!(lastError instanceof ProxyError) ||
+                (lastError.statusCode !== 429 && lastError.statusCode !== 404)) &&
+              shouldAccountCircuitBreaker
+            ) {
+              if (circuitRecoveryIdentity) {
+                await recordFailure(currentProvider.id, lastError, circuitRecoveryIdentity);
+              } else {
+                await recordFailure(currentProvider.id, lastError);
+              }
+            }
+            session.addProviderToChain(currentProvider, {
+              ...endpointAudit,
+              reason: "retry_failed",
+              circuitState: getCircuitState(currentProvider.id),
+              attemptNumber: attemptCount,
+              errorMessage,
+            });
             throw lastError;
           }
 
@@ -2027,7 +2221,11 @@ export class ProxyForwarder {
 
               // 计入熔断器
               if (shouldAccountCircuitBreaker) {
-                await recordFailure(currentProvider.id, lastError);
+                if (circuitRecoveryIdentity) {
+                  await recordFailure(currentProvider.id, lastError, circuitRecoveryIdentity);
+                } else {
+                  await recordFailure(currentProvider.id, lastError);
+                }
               }
             } else {
               logger.debug(
@@ -2178,7 +2376,11 @@ export class ProxyForwarder {
               // 重试耗尽：计入熔断器并切换供应商
               if (!session.isProbeRequest()) {
                 if (shouldAccountCircuitBreaker) {
-                  await recordFailure(currentProvider.id, lastError);
+                  if (circuitRecoveryIdentity) {
+                    await recordFailure(currentProvider.id, lastError, circuitRecoveryIdentity);
+                  } else {
+                    await recordFailure(currentProvider.id, lastError);
+                  }
                 }
               }
 
@@ -2229,7 +2431,9 @@ export class ProxyForwarder {
 
               await recordVendorTypeAllEndpointsTimeout(
                 currentProvider.providerVendorId,
-                currentProvider.providerType
+                currentProvider.providerType,
+                undefined,
+                recoveryAttemptIdentity
               );
               ProxyForwarder.markProviderFailed(session, failedProviderIds, currentProvider.id);
               break;
@@ -2273,7 +2477,7 @@ export class ProxyForwarder {
               attemptNumber: attemptCount,
               rawCrossProviderFallbackEnabled: rawCrossProviderFallbackEnabled || undefined,
               errorMessage: errorMessage,
-              circuitFailureCount: health.failureCount + 1, // 包含本次失败
+              circuitFailureCount: health.failureCount + (statusCode === 429 ? 0 : 1),
               circuitFailureThreshold: config.failureThreshold,
               statusCode: statusCode,
               statusCodeInferred: proxyError.upstreamError?.statusCodeInferred ?? false,
@@ -2321,8 +2525,12 @@ export class ProxyForwarder {
                 messagesCount: session.getMessagesLength(),
               });
             } else {
-              if (shouldAccountCircuitBreaker) {
-                await recordFailure(currentProvider.id, lastError);
+              if (shouldAccountCircuitBreaker && statusCode !== 429) {
+                if (circuitRecoveryIdentity) {
+                  await recordFailure(currentProvider.id, lastError, circuitRecoveryIdentity);
+                } else {
+                  await recordFailure(currentProvider.id, lastError);
+                }
               }
             }
 
@@ -2386,11 +2594,107 @@ export class ProxyForwarder {
     baseUrl: string,
     endpointAudit?: { endpointId: number | null; endpointUrl: string },
     attemptNumber?: number,
-    deferDetailSnapshotPersistence: boolean = false
+    deferDetailSnapshotPersistence: boolean = false,
+    suppliedRecoveryIdentity?: AttemptIdentity
   ): Promise<Response> {
     if (!provider) {
       throw new Error("Provider is required");
     }
+    let recoveryIdentity =
+      suppliedRecoveryIdentity ??
+      session.getRecoveryAttemptIdentity(
+        attemptNumber ?? 1,
+        (attemptNumber ?? 1) === 1 ? "primary" : "retry"
+      );
+    const policy = ProxyForwarder.getEndpointPolicy(session);
+    const endpointScope: RecoveryScope = {
+      kind: "endpoint",
+      providerId: provider.id,
+      endpoint:
+        endpointAudit?.endpointId != null
+          ? { kind: "managed", endpointId: endpointAudit.endpointId }
+          : fingerprintDirectEndpoint(baseUrl, `${provider.providerType}:default`),
+    };
+    const recoveryScopes = sortRecoveryScopes(
+      policy.recoveryEvidence === "connectivity"
+        ? [endpointScope]
+        : policy.recoveryEvidence === "business"
+          ? [
+              ...(provider.providerVendorId
+                ? [
+                    {
+                      kind: "vendor-type" as const,
+                      vendorId: provider.providerVendorId,
+                      providerType: provider.providerType,
+                    },
+                  ]
+                : []),
+              { kind: "provider" as const, providerId: provider.id },
+              endpointScope,
+              ...(session.getOriginalModel()
+                ? [
+                    {
+                      kind: "capability" as const,
+                      providerId: provider.id,
+                      modelFamily: session.getOriginalModel()!,
+                      transport: "http",
+                    },
+                  ]
+                : []),
+            ]
+          : []
+    );
+    if (
+      !(await prepareCompositeRecoveryAttempt({
+        scopes: recoveryScopes,
+        identity: recoveryIdentity,
+        recoveryBucket: session.getRecoveryLayerBucket?.() ?? null,
+        leaseMs: Math.max(
+          provider.requestTimeoutNonStreamingMs,
+          provider.firstByteTimeoutStreamingMs,
+          provider.streamingIdleTimeoutMs,
+          30_000
+        ),
+      }))
+    ) {
+      throw new ProxyError("Recovery admission rejected", 503);
+    }
+    session.setRecoveryAttemptScopes(recoveryIdentity, recoveryScopes);
+
+    const rotateRecoveryIdentityAfterWebSocketFallback = async (): Promise<void> => {
+      await finalizeRecoveryAttempt({
+        identity: recoveryIdentity,
+        effects: recoveryScopes.map((scope) => ({
+          scope,
+          disposition: "ignored" as const,
+          reason: "websocket_fallback",
+        })),
+        retrySafety: policy.retrySafety,
+        upstreamCommitted: false,
+        downstreamCommitted: false,
+        durationMs: Date.now() - session.startTime,
+      });
+      recoveryIdentity = session.rotateRecoveryAttemptIdentity(
+        recoveryIdentity.attemptNumber,
+        recoveryIdentity.attemptKind
+      );
+      if (
+        !(await prepareCompositeRecoveryAttempt({
+          scopes: recoveryScopes,
+          identity: recoveryIdentity,
+          recoveryBucket: session.getRecoveryLayerBucket?.() ?? null,
+          leaseMs: Math.max(
+            provider.requestTimeoutNonStreamingMs,
+            provider.firstByteTimeoutStreamingMs,
+            provider.streamingIdleTimeoutMs,
+            30_000
+          ),
+        }))
+      ) {
+        throw new ProxyError("Recovery admission rejected after WebSocket fallback", 503);
+      }
+      session.setRecoveryAttemptScopes(recoveryIdentity, recoveryScopes);
+    };
 
     const resolvedCacheTtl = resolveCacheTtlPreference(
       session.authState?.key?.cacheTtlPreference,
@@ -3127,6 +3431,8 @@ export class ProxyForwarder {
       // OpenAI Responses WebSocket 上游尝试（仅 Codex 供应商 + 开关开启 + 客户端以 WS 接入）
       // 若握手失败或首帧前关闭，降级到下面的 HTTP 路径；不计入熔断器。
       let responsesWsResponse: Response | null = null;
+      let responsesWsDispatched = false;
+      let responsesWsFallbackFinalized = false;
       const responsesWsEndpointId = endpointAudit?.endpointId ?? null;
       try {
         const wsEligibility = await evaluateResponsesWsEligibility({
@@ -3144,6 +3450,8 @@ export class ProxyForwarder {
           const requestBodyJson = decodeRequestBodyAsJson(requestBody);
 
           if (requestBodyJson) {
+            session.markPendingFailbackDispatched?.();
+            responsesWsDispatched = true;
             const wsResult = await tryResponsesWebsocketUpstream({
               provider,
               upstreamUrl: proxyUrl,
@@ -3169,6 +3477,8 @@ export class ProxyForwarder {
                 attemptNumber: undefined,
               });
             } else {
+              responsesWsFallbackFinalized = true;
+              await rotateRecoveryIdentityAfterWebSocketFallback();
               // Only cache when the failure proves the endpoint does not
               // speak the WS protocol (HTTP 4xx / 501 on the upgrade). Any
               // transient failure (network, auth, silent upstream) should
@@ -3207,6 +3517,11 @@ export class ProxyForwarder {
           });
         }
       } catch (wsError) {
+        if (responsesWsFallbackFinalized) throw wsError;
+        if (responsesWsDispatched && !responsesWsFallbackFinalized) {
+          responsesWsFallbackFinalized = true;
+          await rotateRecoveryIdentityAfterWebSocketFallback();
+        }
         logger.warn(
           "ProxyForwarder: Upstream Responses WebSocket attempt threw, falling back to HTTP",
           {
@@ -3222,6 +3537,7 @@ export class ProxyForwarder {
       // ⭐ 所有供应商使用 undici.request 绕过 fetch 的自动解压
       // 原因：undici fetch 无法关闭自动解压，上游可能无视 accept-encoding: identity 返回 gzip
       // 当 gzip 流被提前终止时（如连接关闭），undici Gunzip 会抛出 "TypeError: terminated"
+      if (!responsesWsResponse) session.markPendingFailbackDispatched?.();
       response = responsesWsResponse
         ? responsesWsResponse
         : useErrorTolerantFetch
@@ -3817,6 +4133,7 @@ export class ProxyForwarder {
   private static shouldUseStreamingHedge(session: ProxySession): boolean {
     const endpointPolicy = ProxyForwarder.getEndpointPolicy(session);
     return (
+      !session.hasPendingFailbackMigration?.() &&
       (endpointPolicy?.allowRetry ?? true) &&
       (endpointPolicy?.allowProviderSwitch ?? true) &&
       (session.request.message as Record<string, unknown>).stream === true &&
@@ -4026,6 +4343,28 @@ export class ProxyForwarder {
         attempt.thresholdTimer = null;
       }
       attempts.delete(attempt);
+      const recoveryIdentity = attempt.session.getRecoveryAttemptIdentity(
+        attempt.sequence * 1_000 + attempt.requestAttemptCount,
+        "race"
+      );
+      void finalizeRecoveryAttempt({
+        identity: recoveryIdentity,
+        effects: (attempt.session.getRecoveryAttemptScopes?.(recoveryIdentity) ?? []).map(
+          (scope) => ({
+            scope,
+            disposition: "ignored",
+            reason,
+          })
+        ),
+        retrySafety: ProxyForwarder.getEndpointPolicy(attempt.session).retrySafety,
+        upstreamCommitted: attempt.response !== null,
+        downstreamCommitted: false,
+        durationMs: Date.now() - attempt.session.startTime,
+      }).catch((error) => {
+        logger.error("ProxyForwarder: hedge loser recovery finalization failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
 
       // 竞速输家计费开启：仅标记 + 记录决策链，不取消连接、不释放 agent。
       // 实际的后台 drain 由 runAttempt 的 .then 流程发起（它独占 reader，避免并发读）。
@@ -4174,7 +4513,11 @@ export class ProxyForwarder {
         attempt.baseUrl,
         attempt.endpointAudit,
         attempt.requestAttemptCount,
-        true
+        true,
+        attempt.session.getRecoveryAttemptIdentity(
+          attempt.sequence * 1_000 + attempt.requestAttemptCount,
+          "race"
+        )
       )
         .then(async (response) => {
           if (settled || winnerCommitted || attempt.settled) {
@@ -4300,13 +4643,51 @@ export class ProxyForwarder {
       const statusCode = error instanceof ProxyError ? error.statusCode : undefined;
       const errorMessage =
         error instanceof ProxyError ? error.getDetailedErrorMessage() : error.message;
+      const recoveryAttemptIdentity = attempt.session.getRecoveryAttemptIdentity(
+        attempt.sequence * 1_000 + attempt.requestAttemptCount,
+        "race"
+      );
+      const recoveryAttemptScopes =
+        attempt.session.getRecoveryAttemptScopes?.(recoveryAttemptIdentity) ?? [];
+      await finalizeRecoveryAttempt({
+        identity: recoveryAttemptIdentity,
+        effects: recoveryAttemptScopes.map((scope) => {
+          const isAffected =
+            errorCategory === ErrorCategory.SYSTEM_ERROR
+              ? scope.kind === "endpoint"
+              : errorCategory === ErrorCategory.RESOURCE_NOT_FOUND
+                ? scope.kind === "capability"
+                : errorCategory === ErrorCategory.PROVIDER_ERROR && statusCode !== 429
+                  ? scope.kind === "provider"
+                  : false;
+          return {
+            scope,
+            disposition: isAffected ? ("transient_failure" as const) : ("ignored" as const),
+            reason: isAffected
+              ? errorCategory === ErrorCategory.RESOURCE_NOT_FOUND
+                ? "capability_not_found"
+                : errorCategory === ErrorCategory.SYSTEM_ERROR
+                  ? "upstream_connectivity"
+                  : "upstream_failure"
+              : "unaffected_scope",
+          };
+        }),
+        retrySafety: ProxyForwarder.getEndpointPolicy(attempt.session).retrySafety,
+        upstreamCommitted: true,
+        downstreamCommitted: false,
+        durationMs: Date.now() - attempt.session.startTime,
+      });
       let matchedRule: MatchedRuleDetails | undefined;
       let matchedRuleLogContext: Record<string, unknown> = {};
 
       if (attempt.endpointAudit.endpointId != null) {
         const isTimeoutError = error instanceof ProxyError && error.statusCode === 524;
         if (isTimeoutError || errorCategory === ErrorCategory.SYSTEM_ERROR) {
-          await recordEndpointFailure(attempt.endpointAudit.endpointId, error);
+          await recordEndpointFailure(attempt.endpointAudit.endpointId, error, {
+            providerId: attempt.provider.id,
+            identity: recoveryAttemptIdentity,
+            durationMs: Date.now() - attempt.session.startTime,
+          });
         }
       }
 
@@ -4427,7 +4808,7 @@ export class ProxyForwarder {
       ProxyForwarder.markProviderFailed(session, failedProviderIds, attempt.provider.id);
 
       if (errorCategory === ErrorCategory.PROVIDER_ERROR && statusCode !== 404) {
-        await recordFailure(attempt.provider.id, error);
+        await recordFailure(attempt.provider.id, error, recoveryAttemptIdentity);
       }
 
       session.addProviderToChain(
@@ -4572,6 +4953,10 @@ export class ProxyForwarder {
         providerName: attempt.provider.name,
         providerPriority: attempt.provider.priority || 0,
         attemptNumber: attempt.sequence,
+        recoveryIdentity: attempt.session.getRecoveryAttemptIdentity(
+          attempt.sequence * 1_000 + attempt.requestAttemptCount,
+          "race"
+        ),
         totalProvidersAttempted: launchedProviderCount,
         isFirstAttempt: launchedProviderCount === 1 && attempt.provider.id === initialProvider.id,
         isFailoverSuccess: attempt.provider.id !== initialProvider.id,

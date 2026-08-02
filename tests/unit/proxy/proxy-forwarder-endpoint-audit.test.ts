@@ -216,6 +216,7 @@ function createSession(requestUrl: URL = new URL("https://example.com/v1/message
     },
     isHeaderModified: () => false,
   });
+  session.setRecoveryAuthorityMode("legacy");
 
   return session as ProxySession;
 }
