@@ -113,7 +113,7 @@ export async function addKey(data: {
   userId: number;
   name: string;
   key?: string;
-  expiresAt?: string;
+  expiresAt?: string | null;
   isEnabled?: boolean;
   canLoginWebUi?: boolean;
   limit5hUsd?: number | null;
@@ -203,7 +203,7 @@ export async function addKey(data: {
 
     const validatedData = KeyFormSchema.parse({
       name: data.name,
-      expiresAt: data.expiresAt,
+      expiresAt: data.expiresAt ?? undefined,
       canLoginWebUi: data.canLoginWebUi,
       limit5hUsd: data.limit5hUsd,
       limit5hResetMode: data.limit5hResetMode,

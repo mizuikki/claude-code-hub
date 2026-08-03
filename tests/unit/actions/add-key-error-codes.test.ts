@@ -19,6 +19,10 @@ vi.mock("next-intl/server", () => ({
   getTranslations: vi.fn(async () => (key: string) => key),
 }));
 
+vi.mock("@/lib/utils/timezone", () => ({
+  resolveSystemTimezone: vi.fn(async () => "UTC"),
+}));
+
 const findActiveKeyByUserIdAndNameMock = vi.fn(async () => null as unknown);
 const findKeyIdByKeyStringMock = vi.fn(async () => null as number | null);
 const findKeyListMock = vi.fn(async () => [] as unknown[]);
@@ -142,5 +146,25 @@ describe("addKey action error codes (self-service surfaceable)", () => {
     expect(result).toMatchObject({ ok: false, errorCode: "CONFLICT" });
     expect(findKeyIdByKeyStringMock).toHaveBeenCalledWith("existing-user-key");
     expect(createKeyMock).not.toHaveBeenCalled();
+  });
+
+  it("imports a non-expiring key when the REST payload uses expiresAt=null", async () => {
+    getSessionMock.mockResolvedValue({ user: { id: 1, role: "admin" } });
+
+    const { addKey } = await import("@/actions/keys");
+    const result = await addKey(
+      selfKeyInput({
+        key: "existing-user-key",
+        expiresAt: null,
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    expect(createKeyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "existing-user-key",
+        expires_at: null,
+      })
+    );
   });
 });
