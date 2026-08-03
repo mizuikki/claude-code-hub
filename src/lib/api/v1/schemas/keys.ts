@@ -57,6 +57,13 @@ const KeyMutationFields = {
 
 export const KeyCreateSchema = z.object(KeyMutationFields).strict();
 
+export const KeyAdminCreateSchema = z
+  .object(KeyMutationFields)
+  .extend({
+    key: z.string().min(1).max(2048).optional().describe("Existing API key to import. Write-only."),
+  })
+  .strict();
+
 export const KeyUpdateSchema = z
   .object(KeyMutationFields)
   .partial()
@@ -138,6 +145,7 @@ export const KeyRevealResponseSchema = z.object({
 });
 
 export type KeyCreateInput = z.infer<typeof KeyCreateSchema>;
+export type KeyAdminCreateInput = z.infer<typeof KeyAdminCreateSchema>;
 export type KeyUpdateInput = z.infer<typeof KeyUpdateSchema>;
 export type KeyRenewInput = z.infer<typeof KeyRenewSchema>;
 export type PatchKeyLimitFieldInput = z.infer<typeof PatchKeyLimitFieldSchema>;

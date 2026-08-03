@@ -27,6 +27,7 @@ describe("createInitialState - batch mode", () => {
     expect(state.routing.allowedModels).toEqual([]);
     expect(state.routing.cacheTtlPreference).toBe("inherit");
     expect(state.routing.swapCacheTtlBilling).toBe(false);
+    expect(state.routing.codexCompactionV2Capability).toBe("legacy_adapter");
     expect(state.routing.anthropicAdaptiveThinking).toBeNull();
   });
 
@@ -209,5 +210,18 @@ describe("providerFormReducer - SET_LIMIT_5H_RESET_MODE", () => {
     };
 
     expect(rateLimit.limit5hResetMode).toBe("fixed");
+  });
+});
+
+describe("providerFormReducer - SET_CODEX_COMPACTION_V2_CAPABILITY", () => {
+  it("stores the selected capability", () => {
+    const baseState = createInitialState("batch");
+
+    const next = providerFormReducer(baseState, {
+      type: "SET_CODEX_COMPACTION_V2_CAPABILITY",
+      payload: "native_v2",
+    });
+
+    expect(next.routing.codexCompactionV2Capability).toBe("native_v2");
   });
 });

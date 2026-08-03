@@ -335,6 +335,10 @@ export const providers = pgTable('providers', {
   // true 强制注入 type="image_generation"，false 强制移除该工具能力
   codexImageGenerationPreference: varchar('codex_image_generation_preference', { length: 10 }),
   codexServiceTierPreference: varchar('codex_service_tier_preference', { length: 20 }),
+  codexCompactionV2Capability: varchar('codex_compaction_v2_capability', { length: 20 })
+    .notNull()
+    .default('legacy_adapter')
+    .$type<'native_v2' | 'legacy_adapter' | 'unsupported'>(),
 
   // Anthropic (Messages API) parameter overrides (only for claude/claude-auth providers)
   // - 'inherit' or null: follow client request

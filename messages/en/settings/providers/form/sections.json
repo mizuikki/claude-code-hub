@@ -205,6 +205,11 @@
       }
     },
     "codexOverrides": {
+      "compactionV2": {
+        "help": "Native v2 passes canonical compaction events through without output normalization. Legacy adapter converts encrypted compaction_summary events. Unsupported providers are excluded from compaction v2 routing.",
+        "label": "Responses compaction v2 capability",
+        "options": { "native_v2": "Native v2", "legacy_adapter": "Legacy adapter", "unsupported": "Unsupported" }
+      },
       "title": "Codex Parameter Overrides",
       "desc": "Override Codex (Responses API) request parameters at the provider level",
       "parallelToolCalls": {

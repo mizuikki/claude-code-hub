@@ -50,6 +50,10 @@ import {
 } from "./openai-image-compat";
 import type { ReplayIdentity } from "./replay/replay-identity";
 import { decodeRequestBody } from "./request-body-codec";
+import {
+  hasProviderBoundCompactionState,
+  isResponsesCompactionV2Request,
+} from "./responses-compaction-v2";
 
 /** F2 Replay 的会话内状态：guard 阶段抢到 owner 租约后填充。 */
 export interface SessionReplayState {
@@ -182,6 +186,23 @@ export class ProxySession {
   // 请求格式追踪：记录原始请求格式和供应商类型
   originalFormat: ClientFormat = "claude";
   providerType: ProviderType | null = null;
+  private requiredCompactionProviderId: number | null = null;
+
+  isResponsesCompactionV2(): boolean {
+    return isResponsesCompactionV2Request(this.requestUrl.pathname, this.request.message);
+  }
+
+  hasProviderBoundCompactionState(): boolean {
+    return hasProviderBoundCompactionState(this.requestUrl.pathname, this.request.message);
+  }
+
+  setRequiredCompactionProviderId(providerId: number): void {
+    this.requiredCompactionProviderId = providerId;
+  }
+
+  getRequiredCompactionProviderId(): number | null {
+    return this.requiredCompactionProviderId;
+  }
 
   // 最长前缀亲和状态（F3a 计算一次，供提名/写回/缓存效果指标复用）
   affinity: SessionAffinityState | null = null;

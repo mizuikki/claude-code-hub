@@ -100,6 +100,7 @@ import type {
   AnthropicAdaptiveThinkingConfig,
   AnthropicMaxTokensPreference,
   AnthropicThinkingBudgetPreference,
+  CodexCompactionV2Capability,
   CodexImageGenerationPreference,
   CodexParallelToolCallsPreference,
   CodexReasoningEffortPreference,
@@ -383,6 +384,7 @@ export async function getProviders(): Promise<ProviderDisplay[]> {
         codexParallelToolCallsPreference: provider.codexParallelToolCallsPreference,
         codexImageGenerationPreference: provider.codexImageGenerationPreference,
         codexServiceTierPreference: provider.codexServiceTierPreference ?? null,
+        codexCompactionV2Capability: provider.codexCompactionV2Capability,
         anthropicMaxTokensPreference: provider.anthropicMaxTokensPreference,
         anthropicThinkingBudgetPreference: provider.anthropicThinkingBudgetPreference,
         anthropicAdaptiveThinking: provider.anthropicAdaptiveThinking,
@@ -568,6 +570,7 @@ export async function addProvider(data: {
   codex_parallel_tool_calls_preference?: CodexParallelToolCallsPreference | null;
   codex_image_generation_preference?: CodexImageGenerationPreference | null;
   codex_service_tier_preference?: CodexServiceTierPreference | null;
+  codex_compaction_v2_capability?: CodexCompactionV2Capability | null;
   anthropic_max_tokens_preference?: AnthropicMaxTokensPreference | null;
   anthropic_thinking_budget_preference?: AnthropicThinkingBudgetPreference | null;
   anthropic_adaptive_thinking?: AnthropicAdaptiveThinkingConfig | null;
@@ -666,6 +669,7 @@ export async function addProvider(data: {
         validated.codex_parallel_tool_calls_preference ?? "inherit",
       codex_image_generation_preference: validated.codex_image_generation_preference,
       codex_service_tier_preference: validated.codex_service_tier_preference ?? "inherit",
+      codex_compaction_v2_capability: validated.codex_compaction_v2_capability ?? "legacy_adapter",
       website_url: validated.website_url ?? null,
       favicon_url: faviconUrl,
       tpm: validated.tpm ?? null,
@@ -727,12 +731,9 @@ export async function addProvider(data: {
     });
     return { ok: true, data: { id: provider.id } };
   } catch (error) {
-    logger.trace("addProvider:error", {
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+    logger.error("addProvider:create_failed", {
+      errorType: error instanceof Error ? error.name : "unknown",
     });
-    logger.error("创建服务商失败:", error);
-    const message = error instanceof Error ? error.message : "创建服务商失败";
     emitActionAudit({
       category: "provider",
       action: "provider.create",
@@ -741,7 +742,7 @@ export async function addProvider(data: {
       success: false,
       errorMessage: "CREATE_FAILED",
     });
-    return { ok: false, error: message };
+    return { ok: false, error: "创建服务商失败" };
   }
 }
 
@@ -785,6 +786,7 @@ export async function editProvider(
     codex_parallel_tool_calls_preference?: CodexParallelToolCallsPreference | null;
     codex_image_generation_preference?: CodexImageGenerationPreference | null;
     codex_service_tier_preference?: CodexServiceTierPreference | null;
+    codex_compaction_v2_capability?: CodexCompactionV2Capability | null;
     anthropic_max_tokens_preference?: AnthropicMaxTokensPreference | null;
     anthropic_thinking_budget_preference?: AnthropicThinkingBudgetPreference | null;
     anthropic_adaptive_thinking?: AnthropicAdaptiveThinkingConfig | null;
@@ -1497,6 +1499,7 @@ const SINGLE_EDIT_PREIMAGE_FIELD_TO_PROVIDER_KEY: Record<string, keyof Provider>
   codex_parallel_tool_calls_preference: "codexParallelToolCallsPreference",
   codex_image_generation_preference: "codexImageGenerationPreference",
   codex_service_tier_preference: "codexServiceTierPreference",
+  codex_compaction_v2_capability: "codexCompactionV2Capability",
   anthropic_max_tokens_preference: "anthropicMaxTokensPreference",
   anthropic_thinking_budget_preference: "anthropicThinkingBudgetPreference",
   anthropic_adaptive_thinking: "anthropicAdaptiveThinking",
@@ -1730,6 +1733,9 @@ function mapApplyUpdatesToRepositoryFormat(
   if (applyUpdates.codex_service_tier_preference !== undefined) {
     result.codexServiceTierPreference = applyUpdates.codex_service_tier_preference;
   }
+  if (applyUpdates.codex_compaction_v2_capability !== undefined) {
+    result.codexCompactionV2Capability = applyUpdates.codex_compaction_v2_capability;
+  }
   if (applyUpdates.anthropic_max_tokens_preference !== undefined) {
     result.anthropicMaxTokensPreference = applyUpdates.anthropic_max_tokens_preference;
   }
@@ -1831,6 +1837,7 @@ const PATCH_FIELD_TO_PROVIDER_KEY: Record<ProviderBatchPatchField, keyof Provide
   codex_parallel_tool_calls_preference: "codexParallelToolCallsPreference",
   codex_image_generation_preference: "codexImageGenerationPreference",
   codex_service_tier_preference: "codexServiceTierPreference",
+  codex_compaction_v2_capability: "codexCompactionV2Capability",
   anthropic_max_tokens_preference: "anthropicMaxTokensPreference",
   gemini_google_search_preference: "geminiGoogleSearchPreference",
   limit_5h_usd: "limit5hUsd",
@@ -1867,6 +1874,7 @@ const PATCH_FIELD_CLEAR_VALUE: Partial<Record<ProviderBatchPatchField, unknown>>
   codex_parallel_tool_calls_preference: "inherit",
   codex_image_generation_preference: "inherit",
   codex_service_tier_preference: "inherit",
+  codex_compaction_v2_capability: "legacy_adapter",
   anthropic_max_tokens_preference: "inherit",
   gemini_google_search_preference: "inherit",
   mcp_passthrough_type: "none",
@@ -1886,6 +1894,7 @@ const CODEX_ONLY_FIELDS: ReadonlySet<ProviderBatchPatchField> = new Set([
   "codex_parallel_tool_calls_preference",
   "codex_image_generation_preference",
   "codex_service_tier_preference",
+  "codex_compaction_v2_capability",
 ]);
 
 const GEMINI_ONLY_FIELDS: ReadonlySet<ProviderBatchPatchField> = new Set([
@@ -1924,6 +1933,7 @@ const CODEX_ONLY_REPO_KEYS: ReadonlySet<keyof BatchProviderUpdates> = new Set([
   "codexParallelToolCallsPreference",
   "codexImageGenerationPreference",
   "codexServiceTierPreference",
+  "codexCompactionV2Capability",
 ]);
 
 const GEMINI_ONLY_REPO_KEYS: ReadonlySet<keyof BatchProviderUpdates> = new Set([
@@ -2713,6 +2723,7 @@ export interface BatchUpdateProvidersParams {
     daily_reset_time?: string;
     codex_service_tier_preference?: CodexServiceTierPreference | null;
     codex_image_generation_preference?: CodexImageGenerationPreference | null;
+    codex_compaction_v2_capability?: CodexCompactionV2Capability;
     anthropic_thinking_budget_preference?: AnthropicThinkingBudgetPreference | null;
     anthropic_adaptive_thinking?: AnthropicAdaptiveThinkingConfig | null;
   };
@@ -2816,6 +2827,9 @@ export async function batchUpdateProviders(
     }
     if (updates.codex_service_tier_preference !== undefined) {
       repositoryUpdates.codexServiceTierPreference = updates.codex_service_tier_preference;
+    }
+    if (updates.codex_compaction_v2_capability !== undefined) {
+      repositoryUpdates.codexCompactionV2Capability = updates.codex_compaction_v2_capability;
     }
     if (updates.anthropic_thinking_budget_preference !== undefined) {
       repositoryUpdates.anthropicThinkingBudgetPreference =

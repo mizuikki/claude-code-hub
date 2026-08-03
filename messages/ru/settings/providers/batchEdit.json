@@ -55,7 +55,8 @@
     "modelRedirects": "Перенаправление моделей",
     "allowedModels": "Разрешенные модели",
     "thinkingBudget": "Бюджет размышлений",
-    "adaptiveThinking": "Адаптивное мышление"
+    "adaptiveThinking": "Адаптивное мышление",
+    "codexCompactionV2Capability": "Возможность Responses compaction v2"
   },
   "errors": {
     "nothingToApply": "Нет изменений для применения.",

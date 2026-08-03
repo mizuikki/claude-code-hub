@@ -6,6 +6,7 @@ import type {
   AnthropicAdaptiveThinkingConfig,
   AnthropicMaxTokensPreference,
   AnthropicThinkingBudgetPreference,
+  CodexCompactionV2Capability,
   CodexImageGenerationPreference,
   CodexParallelToolCallsPreference,
   CodexReasoningEffortPreference,
@@ -47,6 +48,7 @@ export interface BatchSettingsAnalysis {
     codexParallelToolCallsPreference: FieldAnalysisResult<CodexParallelToolCallsPreference>;
     codexImageGenerationPreference: FieldAnalysisResult<CodexImageGenerationPreference>;
     codexServiceTierPreference: FieldAnalysisResult<CodexServiceTierPreference>;
+    codexCompactionV2Capability: FieldAnalysisResult<CodexCompactionV2Capability>;
     anthropicMaxTokensPreference: FieldAnalysisResult<AnthropicMaxTokensPreference>;
     anthropicThinkingBudgetPreference: FieldAnalysisResult<AnthropicThinkingBudgetPreference>;
     anthropicAdaptiveThinking: FieldAnalysisResult<AnthropicAdaptiveThinkingConfig | null>;
@@ -160,6 +162,10 @@ export function analyzeBatchProviderSettings(providers: ProviderDisplay[]): Batc
       codexServiceTierPreference: analyzeField(
         providers,
         (p) => p.codexServiceTierPreference ?? "inherit"
+      ),
+      codexCompactionV2Capability: analyzeField(
+        providers,
+        (p) => p.codexCompactionV2Capability ?? "legacy_adapter"
       ),
       anthropicMaxTokensPreference: analyzeField(
         providers,

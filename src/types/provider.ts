@@ -38,6 +38,7 @@ export type CodexParallelToolCallsPreference = "inherit" | "true" | "false";
 export type CodexImageGenerationPreference = "inherit" | "true" | "false";
 
 export type CodexServiceTierPreference = "inherit" | "auto" | "default" | "flex" | "priority";
+export type CodexCompactionV2Capability = "native_v2" | "legacy_adapter" | "unsupported";
 
 // Anthropic (Messages API) parameter overrides
 // - "inherit": follow client request (default)
@@ -108,6 +109,7 @@ export type ProviderBatchPatchField =
   | "codex_parallel_tool_calls_preference"
   | "codex_image_generation_preference"
   | "codex_service_tier_preference"
+  | "codex_compaction_v2_capability"
   | "anthropic_max_tokens_preference"
   | "gemini_google_search_preference"
   // Rate Limit
@@ -163,6 +165,7 @@ export interface ProviderBatchPatchDraft {
   codex_parallel_tool_calls_preference?: ProviderPatchDraftInput<CodexParallelToolCallsPreference>;
   codex_image_generation_preference?: ProviderPatchDraftInput<CodexImageGenerationPreference>;
   codex_service_tier_preference?: ProviderPatchDraftInput<CodexServiceTierPreference>;
+  codex_compaction_v2_capability?: ProviderPatchDraftInput<CodexCompactionV2Capability>;
   anthropic_max_tokens_preference?: ProviderPatchDraftInput<AnthropicMaxTokensPreference>;
   gemini_google_search_preference?: ProviderPatchDraftInput<GeminiGoogleSearchPreference>;
   // Rate Limit
@@ -219,6 +222,7 @@ export interface ProviderBatchPatch {
   codex_parallel_tool_calls_preference: ProviderPatchOperation<CodexParallelToolCallsPreference>;
   codex_image_generation_preference: ProviderPatchOperation<CodexImageGenerationPreference>;
   codex_service_tier_preference: ProviderPatchOperation<CodexServiceTierPreference>;
+  codex_compaction_v2_capability: ProviderPatchOperation<CodexCompactionV2Capability>;
   anthropic_max_tokens_preference: ProviderPatchOperation<AnthropicMaxTokensPreference>;
   gemini_google_search_preference: ProviderPatchOperation<GeminiGoogleSearchPreference>;
   // Rate Limit
@@ -275,6 +279,7 @@ export interface ProviderBatchApplyUpdates {
   codex_parallel_tool_calls_preference?: CodexParallelToolCallsPreference | null;
   codex_image_generation_preference?: CodexImageGenerationPreference | null;
   codex_service_tier_preference?: CodexServiceTierPreference | null;
+  codex_compaction_v2_capability?: CodexCompactionV2Capability;
   anthropic_max_tokens_preference?: AnthropicMaxTokensPreference | null;
   gemini_google_search_preference?: GeminiGoogleSearchPreference | null;
   // Rate Limit
@@ -417,6 +422,7 @@ export interface Provider {
   codexParallelToolCallsPreference: CodexParallelToolCallsPreference | null;
   codexImageGenerationPreference: CodexImageGenerationPreference | null;
   codexServiceTierPreference: CodexServiceTierPreference | null;
+  codexCompactionV2Capability: CodexCompactionV2Capability;
 
   // Anthropic (Messages API) parameter overrides (only for claude/claude-auth providers)
   anthropicMaxTokensPreference: AnthropicMaxTokensPreference | null;
@@ -511,6 +517,7 @@ export interface ProviderDisplay {
   codexParallelToolCallsPreference: CodexParallelToolCallsPreference | null;
   codexImageGenerationPreference: CodexImageGenerationPreference | null;
   codexServiceTierPreference: CodexServiceTierPreference | null;
+  codexCompactionV2Capability: CodexCompactionV2Capability;
   anthropicMaxTokensPreference: AnthropicMaxTokensPreference | null;
   anthropicThinkingBudgetPreference: AnthropicThinkingBudgetPreference | null;
   anthropicAdaptiveThinking: AnthropicAdaptiveThinkingConfig | null;
@@ -631,6 +638,7 @@ export interface CreateProviderData {
   codex_parallel_tool_calls_preference?: CodexParallelToolCallsPreference | null;
   codex_image_generation_preference?: CodexImageGenerationPreference | null;
   codex_service_tier_preference?: CodexServiceTierPreference | null;
+  codex_compaction_v2_capability?: CodexCompactionV2Capability | null;
   anthropic_max_tokens_preference?: AnthropicMaxTokensPreference | null;
   anthropic_thinking_budget_preference?: AnthropicThinkingBudgetPreference | null;
   anthropic_adaptive_thinking?: AnthropicAdaptiveThinkingConfig | null;
@@ -716,6 +724,7 @@ export interface UpdateProviderData {
   codex_parallel_tool_calls_preference?: CodexParallelToolCallsPreference | null;
   codex_image_generation_preference?: CodexImageGenerationPreference | null;
   codex_service_tier_preference?: CodexServiceTierPreference | null;
+  codex_compaction_v2_capability?: CodexCompactionV2Capability | null;
   anthropic_max_tokens_preference?: AnthropicMaxTokensPreference | null;
   anthropic_thinking_budget_preference?: AnthropicThinkingBudgetPreference | null;
   anthropic_adaptive_thinking?: AnthropicAdaptiveThinkingConfig | null;

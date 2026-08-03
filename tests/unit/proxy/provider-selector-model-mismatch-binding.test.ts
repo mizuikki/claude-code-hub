@@ -284,3 +284,82 @@ describe("findReusable - model mismatch clears stale binding", () => {
     );
   });
 });
+
+describe("Responses compaction v2 binding classification", () => {
+  function createCodexProvider(
+    capability: Provider["codexCompactionV2Capability"],
+    overrides: Partial<Provider> = {}
+  ): Provider {
+    return {
+      ...createOpusProvider(),
+      id: 101,
+      name: "codex-provider",
+      providerType: "codex",
+      codexCompactionV2Capability: capability,
+      ...overrides,
+    } as Provider;
+  }
+
+  test("classifies unavailable or deleted compatible bindings as availability failures", async () => {
+    const { ProxyProviderResolver } = await import("@/app/v1/_lib/proxy/provider-selector");
+    providerRepositoryMocks.findProviderById.mockResolvedValueOnce(
+      createCodexProvider("native_v2", { isEnabled: false })
+    );
+    const disabledGap = await (ProxyProviderResolver as any).isCompactionCapabilityGap({
+      getRequiredCompactionProviderId: () => 101,
+    });
+    providerRepositoryMocks.findProviderById.mockResolvedValueOnce(null);
+    const deletedGap = await (ProxyProviderResolver as any).isCompactionCapabilityGap({
+      getRequiredCompactionProviderId: () => 101,
+    });
+    expect(disabledGap).toBe(false);
+    expect(deletedGap).toBe(false);
+  });
+
+  test("classifies an unsupported bound provider as a capability gap", async () => {
+    const { ProxyProviderResolver } = await import("@/app/v1/_lib/proxy/provider-selector");
+    providerRepositoryMocks.findProviderById.mockResolvedValueOnce(
+      createCodexProvider("unsupported")
+    );
+    await expect(
+      (ProxyProviderResolver as any).isCompactionCapabilityGap({
+        getRequiredCompactionProviderId: () => 101,
+      })
+    ).resolves.toBe(true);
+  });
+
+  test("reports a gap only when every unbound provider is incompatible", async () => {
+    const { ProxyProviderResolver } = await import("@/app/v1/_lib/proxy/provider-selector");
+    const session = {
+      getRequiredCompactionProviderId: () => null,
+      hasProviderBoundCompactionState: () => false,
+      getProvidersSnapshot: async () => [createCodexProvider("unsupported")],
+    };
+    await expect((ProxyProviderResolver as any).isCompactionCapabilityGap(session)).resolves.toBe(
+      true
+    );
+    session.getProvidersSnapshot = async () => [createCodexProvider("legacy_adapter")];
+    await expect((ProxyProviderResolver as any).isCompactionCapabilityGap(session)).resolves.toBe(
+      false
+    );
+  });
+
+  test("retains a bound provider id when the provider is disabled", async () => {
+    const { ProxyProviderResolver } = await import("@/app/v1/_lib/proxy/provider-selector");
+    sessionManagerMocks.SessionManager.getSessionProvider.mockResolvedValueOnce(101);
+    providerRepositoryMocks.findProviderById.mockResolvedValueOnce(
+      createCodexProvider("native_v2", { isEnabled: false })
+    );
+    const setRequiredCompactionProviderId = vi.fn();
+    const result = await (ProxyProviderResolver as any).findReusable({
+      sessionId: "bound-compaction",
+      shouldReuseProvider: () => true,
+      hasProviderBoundCompactionState: () => true,
+      setRequiredCompactionProviderId,
+      authState: null,
+    });
+    expect(result).toBeNull();
+    expect(setRequiredCompactionProviderId).toHaveBeenCalledWith(101);
+    expect(sessionManagerMocks.SessionManager.clearSessionProvider).not.toHaveBeenCalled();
+  });
+});

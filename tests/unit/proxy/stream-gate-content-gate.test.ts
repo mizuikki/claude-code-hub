@@ -224,6 +224,19 @@ describe("runStreamContentGate", () => {
     const result = await runStreamContentGate(reader, { ...GATE_OPTIONS, family: "gemini" });
     expect(result.committed).toBe(true);
   });
+
+  it("openai-responses: compaction ciphertext is valid content", async () => {
+    const compaction =
+      'event: response.output_item.done\ndata: {"type":"response.output_item.done","item":{"type":"compaction","encrypted_content":"cipher"}}\n\n';
+    const reader = readerFromChunks([compaction]);
+    const result = await runStreamContentGate(reader, {
+      ...GATE_OPTIONS,
+      family: "openai-responses",
+    });
+    expect(result.committed).toBe(true);
+    if (!result.committed) return;
+    expect(await drainPrefix(result.prefixChunks)).toBe(compaction);
+  });
 });
 
 describe("concatChunks", () => {

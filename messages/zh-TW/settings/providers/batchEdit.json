@@ -55,7 +55,8 @@
     "modelRedirects": "模型重新導向",
     "allowedModels": "允許的模型",
     "thinkingBudget": "思考預算",
-    "adaptiveThinking": "自適應思考"
+    "adaptiveThinking": "自適應思考",
+    "codexCompactionV2Capability": "Responses 壓縮 v2 能力"
   },
   "errors": {
     "nothingToApply": "沒有可套用的變更。",

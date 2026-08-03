@@ -108,6 +108,7 @@ function makeProvider(id: number, overrides: Record<string, unknown> = {}) {
     codexTextVerbosityPreference: null,
     codexParallelToolCallsPreference: null,
     codexImageGenerationPreference: null,
+    codexCompactionV2Capability: "legacy_adapter",
     anthropicMaxTokensPreference: null,
     anthropicThinkingBudgetPreference: null,
     anthropicAdaptiveThinking: null,
@@ -239,6 +240,31 @@ describe("Provider Single Edit Undo Actions", () => {
     );
     expect(undone.data.revertedCount).toBe(1);
     expect(publishCacheInvalidationMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("undoProviderPatch should revert a compaction capability edit", async () => {
+    findProviderByIdMock.mockResolvedValueOnce(
+      makeProvider(1, { codexCompactionV2Capability: "legacy_adapter" })
+    );
+    updateProviderMock.mockResolvedValueOnce(
+      makeProvider(1, { codexCompactionV2Capability: "native_v2" })
+    );
+
+    const { editProvider, undoProviderPatch } = await import("../../../src/actions/providers");
+    const edited = await editProvider(1, { codex_compaction_v2_capability: "native_v2" });
+    if (!edited.ok) throw new Error(`Edit should succeed: ${edited.error}`);
+
+    updateProvidersBatchMock.mockClear();
+    const undone = await undoProviderPatch({
+      undoToken: edited.data.undoToken,
+      operationId: edited.data.operationId,
+    });
+
+    expect(undone.ok).toBe(true);
+    expect(updateProvidersBatchMock).toHaveBeenCalledWith(
+      [1],
+      expect.objectContaining({ codexCompactionV2Capability: "legacy_adapter" })
+    );
   });
 
   it("undoProviderPatch should atomically consume a volatile token before reverting", async () => {
