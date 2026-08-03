@@ -16,6 +16,7 @@ vi.mock("next-intl/server", () => ({
 
 const createKeyMock = vi.fn(async () => ({}));
 const findActiveKeyByUserIdAndNameMock = vi.fn(async () => null);
+const findKeyIdByKeyStringMock = vi.fn(async () => null);
 const findKeyByIdMock = vi.fn();
 const findKeyListMock = vi.fn(async () => []);
 const updateKeyMock = vi.fn(async () => ({}));
@@ -25,6 +26,7 @@ vi.mock("@/repository/key", () => ({
   createKey: createKeyMock,
   deleteKey: vi.fn(async () => true),
   findActiveKeyByUserIdAndName: findActiveKeyByUserIdAndNameMock,
+  findKeyIdByKeyString: findKeyIdByKeyStringMock,
   findKeyById: findKeyByIdMock,
   findKeyList: findKeyListMock,
   findKeysWithStatistics: vi.fn(async () => []),

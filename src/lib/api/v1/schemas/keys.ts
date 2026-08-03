@@ -1,4 +1,9 @@
 import { z } from "@hono/zod-openapi";
+import {
+  USER_API_KEY_MAX_LENGTH,
+  USER_API_KEY_MIN_LENGTH,
+  USER_API_KEY_PATTERN,
+} from "@/lib/security/api-key-format";
 
 const ResetModeSchema = z.enum(["fixed", "rolling"]);
 const CacheTtlPreferenceSchema = z.enum(["inherit", "5m", "1h"]);
@@ -60,7 +65,13 @@ export const KeyCreateSchema = z.object(KeyMutationFields).strict();
 export const KeyAdminCreateSchema = z
   .object(KeyMutationFields)
   .extend({
-    key: z.string().min(1).max(2048).optional().describe("Existing API key to import. Write-only."),
+    key: z
+      .string()
+      .min(USER_API_KEY_MIN_LENGTH)
+      .max(USER_API_KEY_MAX_LENGTH)
+      .regex(USER_API_KEY_PATTERN)
+      .optional()
+      .describe("Existing API key to import. Write-only."),
   })
   .strict();
 

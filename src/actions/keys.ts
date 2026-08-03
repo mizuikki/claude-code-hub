@@ -13,6 +13,7 @@ import { logger } from "@/lib/logger";
 import { resolveKeyConcurrentSessionLimit } from "@/lib/rate-limit/concurrent-session-limit";
 import { resolveKeyCostResetAt } from "@/lib/rate-limit/cost-reset-utils";
 import { invalidateCachedKey } from "@/lib/security/api-key-auth-cache";
+import { isValidUserApiKey } from "@/lib/security/api-key-format";
 import { parseDateInputAsTimezone } from "@/lib/utils/date-input";
 import { ERROR_CODES } from "@/lib/utils/error-messages";
 import { normalizeProviderGroup, parseProviderGroups } from "@/lib/utils/provider-group";
@@ -26,6 +27,7 @@ import {
   deleteKey,
   findActiveKeyByUserIdAndName,
   findKeyById,
+  findKeyIdByKeyString,
   findKeyList,
   findKeysWithStatistics,
   resetKeyCostResetAt,
@@ -157,6 +159,14 @@ export async function addKey(data: {
         ok: false,
         error: tError("PERMISSION_DENIED"),
         errorCode: ERROR_CODES.PERMISSION_DENIED,
+      };
+    }
+
+    if (data.key !== undefined && !isValidUserApiKey(data.key)) {
+      return {
+        ok: false,
+        error: tError("INVALID_FORMAT"),
+        errorCode: ERROR_CODES.INVALID_FORMAT,
       };
     }
 
@@ -349,6 +359,17 @@ export async function addKey(data: {
     }
 
     const generatedKey = data.key ?? `sk-${randomBytes(16).toString("hex")}`;
+
+    if (data.key !== undefined) {
+      const existingKeyId = await findKeyIdByKeyString(generatedKey);
+      if (existingKeyId !== null) {
+        return {
+          ok: false,
+          error: tError("CONFLICT"),
+          errorCode: ERROR_CODES.CONFLICT,
+        };
+      }
+    }
 
     // 转换 expiresAt: undefined → null（永不过期），string → Date（按系统时区解析）
     const timezone = await resolveSystemTimezone();

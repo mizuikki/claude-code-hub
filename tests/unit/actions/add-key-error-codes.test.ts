@@ -20,11 +20,14 @@ vi.mock("next-intl/server", () => ({
 }));
 
 const findActiveKeyByUserIdAndNameMock = vi.fn(async () => null as unknown);
+const findKeyIdByKeyStringMock = vi.fn(async () => null as number | null);
 const findKeyListMock = vi.fn(async () => [] as unknown[]);
+const createKeyMock = vi.fn(async () => ({ id: 1 }));
 vi.mock("@/repository/key", () => ({
   countActiveKeysByUser: vi.fn(async () => 0),
-  createKey: vi.fn(async () => ({ id: 1 })),
+  createKey: createKeyMock,
   findActiveKeyByUserIdAndName: findActiveKeyByUserIdAndNameMock,
+  findKeyIdByKeyString: findKeyIdByKeyStringMock,
   findKeyById: vi.fn(),
   findKeyList: findKeyListMock,
   findKeysWithStatistics: vi.fn(async () => []),
@@ -76,6 +79,7 @@ describe("addKey action error codes (self-service surfaceable)", () => {
     findUserByIdMock.mockResolvedValue(baseUser);
     findKeyListMock.mockResolvedValue([{ providerGroup: "default" }]);
     findActiveKeyByUserIdAndNameMock.mockResolvedValue(null);
+    findKeyIdByKeyStringMock.mockResolvedValue(null);
   });
 
   it("returns DUPLICATE_NAME errorCode + name param on a duplicate active key name", async () => {
@@ -115,5 +119,28 @@ describe("addKey action error codes (self-service surfaceable)", () => {
       expect(result.errorCode).toBe("KEY_LIMIT_TOTAL_EXCEEDS_USER_LIMIT");
       expect(result.errorParams).toMatchObject({ keyLimit: "500", userLimit: "100" });
     }
+  });
+
+  it("rejects an invalid imported key before persisting it", async () => {
+    getSessionMock.mockResolvedValue({ user: { id: 1, role: "admin" } });
+
+    const { addKey } = await import("@/actions/keys");
+    const result = await addKey(selfKeyInput({ key: "key with spaces" }));
+
+    expect(result).toMatchObject({ ok: false, errorCode: "INVALID_FORMAT" });
+    expect(createKeyMock).not.toHaveBeenCalled();
+    expect(findKeyIdByKeyStringMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an imported key value that already exists", async () => {
+    getSessionMock.mockResolvedValue({ user: { id: 1, role: "admin" } });
+    findKeyIdByKeyStringMock.mockResolvedValue(99);
+
+    const { addKey } = await import("@/actions/keys");
+    const result = await addKey(selfKeyInput({ key: "existing-user-key" }));
+
+    expect(result).toMatchObject({ ok: false, errorCode: "CONFLICT" });
+    expect(findKeyIdByKeyStringMock).toHaveBeenCalledWith("existing-user-key");
+    expect(createKeyMock).not.toHaveBeenCalled();
   });
 });

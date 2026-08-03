@@ -480,6 +480,16 @@ export async function resetKeyCostResetAt(keyId: number, resetAt: Date | null): 
   return result.length > 0;
 }
 
+/**
+ * Find any row that has used a key value, including soft-deleted rows.
+ * Imported credentials must never be reused after deletion.
+ */
+export async function findKeyIdByKeyString(keyString: string): Promise<number | null> {
+  const [row] = await db.select({ id: keys.id }).from(keys).where(eq(keys.key, keyString)).limit(1);
+
+  return row?.id ?? null;
+}
+
 export async function findActiveKeyByKeyString(keyString: string): Promise<Key | null> {
   const vfSaysMissing = apiKeyVacuumFilter.isDefinitelyNotPresent(keyString) === true;
 

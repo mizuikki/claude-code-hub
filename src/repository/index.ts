@@ -14,6 +14,7 @@ export {
   findActiveKeyByKeyString,
   findActiveKeyByUserIdAndName,
   findKeyById,
+  findKeyIdByKeyString,
   findKeyList,
   findKeyListBatch,
   findKeysWithStatisticsBatch,

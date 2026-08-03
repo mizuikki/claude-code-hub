@@ -87,4 +87,11 @@ describe("provider compaction v2 contracts", () => {
     expect(KeyAdminCreateSchema.parse(payload).key).toBe("existing-user-key");
     expect(KeyCreateSchema.safeParse(payload).success).toBe(false);
   });
+
+  test.each(["too-short", "key with spaces", "key/with/slashes"])(
+    "rejects invalid imported key %s",
+    (key) => {
+      expect(KeyAdminCreateSchema.safeParse({ name: "imported", key }).success).toBe(false);
+    }
+  );
 });
