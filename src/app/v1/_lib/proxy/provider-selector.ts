@@ -33,6 +33,7 @@ import { isClientAllowedDetailed } from "./client-detector";
 import type { ClientFormat } from "./format-mapper";
 import { getVerboseProviderErrorCached } from "./provider-selector-settings-cache";
 import { ProxyResponses } from "./responses";
+import { providerSupportsResponsesCompactionV2 } from "./responses-compaction-v2";
 import type { ProxySession } from "./session";
 
 /**
@@ -211,7 +212,10 @@ export class ProxyProviderResolver {
         session,
         affinityRoutingEnabled
       );
-      skipSessionBinding = runtimeSettings.affinityIgnoreClientSessionId && fingerprintable;
+      skipSessionBinding =
+        !(session.hasProviderBoundCompactionState?.() ?? false) &&
+        runtimeSettings.affinityIgnoreClientSessionId &&
+        fingerprintable;
     } catch (error) {
       affinityRoutingEnabled = false;
       skipSessionBinding = false;
@@ -268,12 +272,19 @@ export class ProxyProviderResolver {
     }
 
     // === 前缀亲和提名（优先级：显式 session 绑定 > 亲和 > 加权随机）===
-    if (affinityRoutingEnabled && !session.provider) {
+    if (
+      affinityRoutingEnabled &&
+      !session.provider &&
+      !(session.hasProviderBoundCompactionState?.() ?? false)
+    ) {
       await ProxyProviderResolver.tryPrefixAffinityNomination(session);
     }
 
     // === 首次选择或重试 ===
-    if (!session.provider) {
+    const hasUnresolvedBoundCompactionState =
+      (session.hasProviderBoundCompactionState?.() ?? false) &&
+      (session.getRequiredCompactionProviderId?.() ?? null) === null;
+    if (!session.provider && !hasUnresolvedBoundCompactionState) {
       const { provider, context } = await ProxyProviderResolver.pickRandomProvider(
         session,
         excludedProviders
@@ -466,6 +477,21 @@ export class ProxyProviderResolver {
     // 循环结束：所有可用供应商都已尝试或无可用供应商
     const status = 503;
 
+    const requiresCompactionProvider =
+      (session.isResponsesCompactionV2?.() ?? false) ||
+      (session.hasProviderBoundCompactionState?.() ?? false);
+    if (
+      requiresCompactionProvider &&
+      excludedProviders.length === 0 &&
+      (await ProxyProviderResolver.isCompactionCapabilityGap(session))
+    ) {
+      return ProxyResponses.buildError(
+        status,
+        "No provider supports Responses compaction v2",
+        "responses_compaction_v2_not_supported"
+      );
+    }
+
     // 获取系统设置中的 verboseProviderError 配置（使用缓存避免频繁查询数据库）
     const verboseError = await getVerboseProviderErrorCached();
 
@@ -569,6 +595,22 @@ export class ProxyProviderResolver {
   ): Promise<Provider | null> {
     const { provider } = await ProxyProviderResolver.pickRandomProvider(session, excludeIds);
     return provider;
+  }
+
+  /** Distinguishes unsupported providers from compatible providers that are unavailable. */
+  private static async isCompactionCapabilityGap(session: ProxySession): Promise<boolean> {
+    const requiredProviderId = session.getRequiredCompactionProviderId?.() ?? null;
+    if (requiredProviderId !== null) {
+      const requiredProvider = await findProviderById(requiredProviderId);
+      return requiredProvider !== null && !providerSupportsResponsesCompactionV2(requiredProvider);
+    }
+
+    if (session.hasProviderBoundCompactionState?.() ?? false) {
+      return false;
+    }
+
+    const providers = await session.getProvidersSnapshot();
+    return !providers.some(providerSupportsResponsesCompactionV2);
   }
 
   /**
@@ -833,7 +875,8 @@ export class ProxyProviderResolver {
    * 查找可复用的供应商（基于 session）
    */
   private static async findReusable(session: ProxySession): Promise<Provider | null> {
-    if (!session.shouldReuseProvider() || !session.sessionId) {
+    const hasBoundCompactionState = session.hasProviderBoundCompactionState?.() ?? false;
+    if ((!session.shouldReuseProvider() && !hasBoundCompactionState) || !session.sessionId) {
       return null;
     }
 
@@ -843,6 +886,7 @@ export class ProxyProviderResolver {
     const sessionId = session.sessionId;
     const keyId = session.authState?.key?.id ?? session.messageContext?.key?.id ?? null;
     const clearRejectedProviderBinding = async (providerId: number): Promise<void> => {
+      if (hasBoundCompactionState) return;
       await SessionManager.clearSessionProvider(sessionId, providerId, keyId);
       // A clear attempt can advance or race the canonical generation. Force
       // Discovery to read authoritative state instead of this old snapshot.
@@ -867,6 +911,10 @@ export class ProxyProviderResolver {
       return null;
     }
 
+    if (hasBoundCompactionState) {
+      session.setRequiredCompactionProviderId?.(providerId);
+    }
+
     // 验证 provider 可用性
     const provider = await findProviderById(providerId);
     if (!provider?.isEnabled) {
@@ -878,13 +926,24 @@ export class ProxyProviderResolver {
       return null;
     }
 
-    if (provider.disableSessionReuse) {
+    if (provider.disableSessionReuse && !hasBoundCompactionState) {
       logger.debug("ProviderSelector: Session provider opted out of session reuse", {
         sessionId: session.sessionId,
         providerId: provider.id,
         providerName: provider.name,
       });
       await clearRejectedProviderBinding(providerId);
+      return null;
+    }
+
+    if (
+      ((session.isResponsesCompactionV2?.() ?? false) || hasBoundCompactionState) &&
+      !providerSupportsResponsesCompactionV2(provider)
+    ) {
+      logger.debug("ProviderSelector: Bound provider lacks compaction v2 capability", {
+        sessionId: session.sessionId,
+        providerId: provider.id,
+      });
       return null;
     }
 
@@ -1228,11 +1287,23 @@ export class ProxyProviderResolver {
 
     // Resolve system timezone once for active time checks
     const systemTimezone = await resolveSystemTimezone();
+    const requiresCompactionProvider =
+      (session?.isResponsesCompactionV2?.() ?? false) ||
+      (session?.hasProviderBoundCompactionState?.() ?? false);
+    const requiredCompactionProviderId = session?.getRequiredCompactionProviderId?.() ?? null;
 
     // Step 2: 基础过滤 + 格式/模型匹配（使用 visibleProviders）
     const enabledProviders = visibleProviders.filter((provider) => {
       // 2a. 基础过滤
       if (!provider.isEnabled || excludeIds.includes(provider.id)) {
+        return false;
+      }
+
+      if (requiredCompactionProviderId !== null && provider.id !== requiredCompactionProviderId) {
+        return false;
+      }
+
+      if (requiresCompactionProvider && !providerSupportsResponsesCompactionV2(provider)) {
         return false;
       }
 

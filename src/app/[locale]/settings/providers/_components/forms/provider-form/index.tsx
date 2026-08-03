@@ -358,6 +358,7 @@ function ProviderFormContent({
           codex_parallel_tool_calls_preference: state.routing.codexParallelToolCallsPreference,
           codex_image_generation_preference: state.routing.codexImageGenerationPreference,
           codex_service_tier_preference: state.routing.codexServiceTierPreference,
+          codex_compaction_v2_capability: state.routing.codexCompactionV2Capability,
           anthropic_max_tokens_preference: state.routing.anthropicMaxTokensPreference,
           anthropic_thinking_budget_preference: state.routing.anthropicThinkingBudgetPreference,
           anthropic_adaptive_thinking: state.routing.anthropicAdaptiveThinking,

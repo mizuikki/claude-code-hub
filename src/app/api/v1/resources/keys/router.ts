@@ -4,6 +4,7 @@ import { fromZodError } from "@/lib/api/v1/_shared/error-envelope";
 import { ProblemJsonSchema } from "@/lib/api/v1/schemas/_common";
 import {
   GenericKeyResponseSchema,
+  KeyAdminCreateSchema,
   KeyCreateSchema,
   KeyEnableSchema,
   KeyIdParamSchema,
@@ -99,7 +100,7 @@ keysRouter.openapi(
     security,
     request: {
       params: UserIdForKeysParamSchema,
-      body: { required: true, content: { "application/json": { schema: KeyCreateSchema } } },
+      body: { required: true, content: { "application/json": { schema: KeyAdminCreateSchema } } },
     },
     responses: {
       201: {

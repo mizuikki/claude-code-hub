@@ -127,6 +127,19 @@ describe("v1 key endpoints", () => {
       name: "default",
       providerGroup: "default",
     });
+
+    const imported = await callV1Route({
+      method: "POST",
+      pathname: "/api/v1/users/1/keys",
+      headers,
+      body: { name: "imported", key: "existing-secret-key" },
+    });
+    expect(imported.response.status).toBe(201);
+    expect(addKeyMock).toHaveBeenCalledWith({
+      userId: 1,
+      name: "imported",
+      key: "existing-secret-key",
+    });
   });
 
   test("rejects user API keys for key management when API key admin access is disabled", async () => {

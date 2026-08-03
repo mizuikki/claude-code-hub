@@ -53,6 +53,7 @@ const PATCH_FIELDS: ProviderBatchPatchField[] = [
   "codex_parallel_tool_calls_preference",
   "codex_image_generation_preference",
   "codex_service_tier_preference",
+  "codex_compaction_v2_capability",
   "anthropic_max_tokens_preference",
   "gemini_google_search_preference",
   // Rate Limit
@@ -109,6 +110,7 @@ const CLEARABLE_FIELDS: Record<ProviderBatchPatchField, boolean> = {
   codex_parallel_tool_calls_preference: true,
   codex_image_generation_preference: true,
   codex_service_tier_preference: true,
+  codex_compaction_v2_capability: true,
   anthropic_max_tokens_preference: true,
   gemini_google_search_preference: true,
   // Rate Limit
@@ -278,6 +280,8 @@ function isValidSetValue(field: ProviderBatchPatchField, value: unknown): boolea
         value === "flex" ||
         value === "priority"
       );
+    case "codex_compaction_v2_capability":
+      return value === "native_v2" || value === "legacy_adapter" || value === "unsupported";
     case "anthropic_thinking_budget_preference":
       return isThinkingBudgetPreference(value);
     case "anthropic_max_tokens_preference":
@@ -527,6 +531,12 @@ export function normalizeProviderBatchPatchDraft(
   );
   if (!codexServiceTier.ok) return codexServiceTier;
 
+  const codexCompactionV2Capability = normalizePatchField(
+    "codex_compaction_v2_capability",
+    typedDraft.codex_compaction_v2_capability
+  );
+  if (!codexCompactionV2Capability.ok) return codexCompactionV2Capability;
+
   const anthropicMaxTokens = normalizePatchField(
     "anthropic_max_tokens_preference",
     typedDraft.anthropic_max_tokens_preference
@@ -665,6 +675,7 @@ export function normalizeProviderBatchPatchDraft(
       codex_parallel_tool_calls_preference: codexParallelToolCalls.data,
       codex_image_generation_preference: codexImageGeneration.data,
       codex_service_tier_preference: codexServiceTier.data,
+      codex_compaction_v2_capability: codexCompactionV2Capability.data,
       anthropic_max_tokens_preference: anthropicMaxTokens.data,
       gemini_google_search_preference: geminiGoogleSearch.data,
       // Rate Limit
@@ -797,6 +808,10 @@ function applyPatchField<T>(
       case "codex_service_tier_preference":
         updates.codex_service_tier_preference =
           patch.value as ProviderBatchApplyUpdates["codex_service_tier_preference"];
+        return { ok: true, data: undefined };
+      case "codex_compaction_v2_capability":
+        updates.codex_compaction_v2_capability =
+          patch.value as ProviderBatchApplyUpdates["codex_compaction_v2_capability"];
         return { ok: true, data: undefined };
       case "anthropic_max_tokens_preference":
         updates.anthropic_max_tokens_preference =
@@ -941,6 +956,9 @@ function applyPatchField<T>(
     case "codex_service_tier_preference":
       updates.codex_service_tier_preference = "inherit";
       return { ok: true, data: undefined };
+    case "codex_compaction_v2_capability":
+      updates.codex_compaction_v2_capability = "legacy_adapter";
+      return { ok: true, data: undefined };
     case "anthropic_max_tokens_preference":
       updates.anthropic_max_tokens_preference = "inherit";
       return { ok: true, data: undefined };
@@ -1016,6 +1034,7 @@ export function buildProviderBatchApplyUpdates(
     ["codex_parallel_tool_calls_preference", patch.codex_parallel_tool_calls_preference],
     ["codex_image_generation_preference", patch.codex_image_generation_preference],
     ["codex_service_tier_preference", patch.codex_service_tier_preference],
+    ["codex_compaction_v2_capability", patch.codex_compaction_v2_capability],
     ["anthropic_max_tokens_preference", patch.anthropic_max_tokens_preference],
     ["gemini_google_search_preference", patch.gemini_google_search_preference],
     // Rate Limit
@@ -1085,6 +1104,7 @@ export function hasProviderBatchPatchChanges(patch: ProviderBatchPatch): boolean
     patch.codex_parallel_tool_calls_preference.mode !== "no_change" ||
     patch.codex_image_generation_preference.mode !== "no_change" ||
     patch.codex_service_tier_preference.mode !== "no_change" ||
+    patch.codex_compaction_v2_capability.mode !== "no_change" ||
     patch.anthropic_max_tokens_preference.mode !== "no_change" ||
     patch.gemini_google_search_preference.mode !== "no_change" ||
     // Rate Limit

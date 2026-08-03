@@ -1,0 +1,201 @@
+import { describe, expect, test } from "vitest";
+import {
+  hasProviderBoundCompactionState,
+  isResponsesCompactionV2Request,
+  providerSupportsResponsesCompactionV2,
+  processResponsesCompactionV2Stream,
+} from "./responses-compaction-v2";
+
+const encoder = new TextEncoder();
+
+function stream(parts: string[], failure?: Error): ReadableStream<Uint8Array> {
+  let index = 0;
+  return new ReadableStream({
+    pull(controller) {
+      if (index < parts.length) {
+        controller.enqueue(encoder.encode(parts[index++]));
+        return;
+      }
+      if (failure) controller.error(failure);
+      else controller.close();
+    },
+  });
+}
+
+async function read(source: ReadableStream<Uint8Array>): Promise<string> {
+  return new Response(source).text();
+}
+
+describe("Responses compaction v2", () => {
+  test("detects only a top-level input trigger on the exact endpoint", () => {
+    expect(
+      isResponsesCompactionV2Request("/v1/responses", { input: [{ type: "compaction_trigger" }] })
+    ).toBe(true);
+    expect(
+      isResponsesCompactionV2Request("/v1/responses/compact", {
+        input: [{ type: "compaction_trigger" }],
+      })
+    ).toBe(false);
+    expect(
+      isResponsesCompactionV2Request("/v1/responses", {
+        input: [{ nested: { type: "compaction_trigger" } }],
+      })
+    ).toBe(false);
+  });
+
+  test("detects only non-empty provider-bound ciphertext on Responses", () => {
+    expect(
+      hasProviderBoundCompactionState("/v1/responses", {
+        input: [{ type: "compaction", encrypted_content: "cipher" }],
+      })
+    ).toBe(true);
+    expect(
+      hasProviderBoundCompactionState("/v1/responses/compact", {
+        input: [{ type: "compaction", encrypted_content: "cipher" }],
+      })
+    ).toBe(false);
+    expect(
+      hasProviderBoundCompactionState("/v1/responses", {
+        input: [{ type: "compaction", encrypted_content: "" }],
+      })
+    ).toBe(false);
+  });
+
+  test("excludes unsupported and non-Codex providers from v2 routing", () => {
+    expect(
+      providerSupportsResponsesCompactionV2({
+        providerType: "codex",
+        codexCompactionV2Capability: "unsupported",
+      } as never)
+    ).toBe(false);
+    expect(
+      providerSupportsResponsesCompactionV2({
+        providerType: "codex",
+        codexCompactionV2Capability: "legacy_adapter",
+      } as never)
+    ).toBe(true);
+    expect(
+      providerSupportsResponsesCompactionV2({
+        providerType: "openai-compatible",
+        codexCompactionV2Capability: "native_v2",
+      } as never)
+    ).toBe(false);
+  });
+
+  test("passes native v2 events through byte-for-byte", async () => {
+    const input =
+      'event: response.output_item.done\ndata: {"type":"response.output_item.done","item":{"type":"compaction","encrypted_content":"cipher"}}\n\nevent: response.completed\ndata: {"type":"response.completed","response":{"usage":{"input_tokens":2}}}\n\n';
+    expect(await read(processResponsesCompactionV2Stream(stream([input]), "native_v2"))).toBe(
+      input
+    );
+  });
+
+  test("passes malformed native frames through and keeps inspecting later events", async () => {
+    const input = 'data: not-json\n\ndata: {"type":"response.completed","response":{}}\n\n';
+    expect(await read(processResponsesCompactionV2Stream(stream([input]), "native_v2"))).toBe(
+      input
+    );
+  });
+
+  test("adapts legacy items across chunk boundaries and terminal output", async () => {
+    const input =
+      'event: response.output_item.added\ndata: {"type":"response.output_item.added","item":{"type":"compaction_summary","encrypted_content":"cipher","extra":1}}\n\nevent: response.output_item.done\ndata: {"type":"response.output_item.done","item":{"type":"compaction_summary","encrypted_content":"cipher","extra":1}}\n\nevent: response.completed\ndata: {"type":"response.completed","response":{"id":"r1","output":[{"type":"compaction_summary","encrypted_content":"cipher"}],"usage":{"input_tokens":2}}}\n\n';
+    const splitAt = input.indexOf('"item"');
+    const output = await read(
+      processResponsesCompactionV2Stream(
+        stream([input.slice(0, splitAt), input.slice(splitAt)]),
+        "legacy_adapter"
+      )
+    );
+    expect(output).not.toContain("compaction_summary");
+    expect(output).toContain('"type":"compaction"');
+    expect(output).toContain('"extra":1');
+    expect(output).toContain('"usage":{"input_tokens":2}');
+  });
+
+  test("accepts canonical compaction items returned by a legacy provider", async () => {
+    const input =
+      'event: response.output_item.added\ndata: {"type":"response.output_item.added","item":{"type":"compaction","encrypted_content":"cipher"}}\n\nevent: response.output_item.done\ndata: {"type":"response.output_item.done","item":{"type":"compaction","encrypted_content":"cipher"}}\n\nevent: response.completed\ndata: {"type":"response.completed","response":{"output":[{"type":"compaction","encrypted_content":"cipher"}]}}\n\n';
+    expect(await read(processResponsesCompactionV2Stream(stream([input]), "legacy_adapter"))).toBe(
+      input
+    );
+  });
+
+  test("streams events before completion and forwards cancellation", async () => {
+    let cancelReason: unknown;
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode('data: {"type":"response.created","response":{"id":"r1"}}\n\n')
+        );
+      },
+      cancel(reason) {
+        cancelReason = reason;
+      },
+    });
+    const reader = processResponsesCompactionV2Stream(source, "legacy_adapter").getReader();
+    const first = await reader.read();
+    expect(new TextDecoder().decode(first.value)).toContain("response.created");
+    await reader.cancel("client disconnected");
+    expect(cancelReason).toBe("client disconnected");
+  });
+
+  test.each([
+    ["zero", 'data: {"type":"response.completed","response":{"output":[]}}\n\n'],
+    [
+      "missing ciphertext",
+      'data: {"type":"response.output_item.done","item":{"type":"compaction_summary"}}\n\ndata: {"type":"response.completed","response":{}}\n\n',
+    ],
+    [
+      "missing canonical ciphertext",
+      'data: {"type":"response.output_item.done","item":{"type":"compaction"}}\n\ndata: {"type":"response.completed","response":{}}\n\n',
+    ],
+    [
+      "multiple",
+      'data: {"type":"response.output_item.done","item":{"type":"compaction_summary","encrypted_content":"a"}}\n\ndata: {"type":"response.output_item.done","item":{"type":"compaction_summary","encrypted_content":"b"}}\n\ndata: {"type":"response.completed","response":{}}\n\n',
+    ],
+  ])("rejects %s legacy results", async (_name, input) => {
+    await expect(
+      read(processResponsesCompactionV2Stream(stream([input]), "legacy_adapter"))
+    ).rejects.toThrow("expected exactly one");
+  });
+
+  test("rejects failed, incomplete, and malformed streams", async () => {
+    for (const type of ["response.failed", "response.incomplete"]) {
+      const input = `data: {"type":"response.output_item.done","item":{"type":"compaction_summary","encrypted_content":"a"}}\n\ndata: {"type":"${type}","response":{}}\n\n`;
+      await expect(
+        read(processResponsesCompactionV2Stream(stream([input]), "legacy_adapter"))
+      ).rejects.toThrow("missing response.completed");
+    }
+    await expect(
+      read(
+        processResponsesCompactionV2Stream(
+          stream(['data: {"type":"response.created"\n\n']),
+          "legacy_adapter"
+        )
+      )
+    ).rejects.toThrow("malformed SSE JSON");
+  });
+
+  test("swallows expected reset only after a successful terminal", async () => {
+    const completed = 'data: {"type":"response.completed","response":{}}\n\n';
+    const reset = Object.assign(new Error("socket reset"), { code: "ECONNRESET" });
+    expect(
+      await read(processResponsesCompactionV2Stream(stream([completed], reset), "native_v2"))
+    ).toBe(completed);
+    await expect(
+      read(processResponsesCompactionV2Stream(stream(["data: {}\n\n"], reset), "native_v2"))
+    ).rejects.toThrow("socket reset");
+  });
+
+  test("preserves encrypted content during legacy conversion", async () => {
+    const input =
+      'data: {"type":"response.output_item.done","item":{"type":"compaction_summary","encrypted_content":"opaque-provider-token"}}\n\ndata: {"type":"response.completed","response":{}}\n\n';
+    const output = await read(
+      processResponsesCompactionV2Stream(stream([input]), "legacy_adapter")
+    );
+    const done = output.split("\n").find((line) => line.includes("response.output_item.done"));
+    const item = JSON.parse(done!.slice(6)).item;
+    expect(item).toEqual({ type: "compaction", encrypted_content: "opaque-provider-token" });
+  });
+});

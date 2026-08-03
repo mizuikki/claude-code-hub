@@ -160,6 +160,11 @@ export function buildPatchDraftFromFormState(
       draft.codex_service_tier_preference = { set: state.routing.codexServiceTierPreference };
     }
   }
+  if (dirtyFields.has("routing.codexCompactionV2Capability")) {
+    draft.codex_compaction_v2_capability = {
+      set: state.routing.codexCompactionV2Capability,
+    };
+  }
 
   // Anthropic preferences
   if (dirtyFields.has("routing.anthropicMaxTokensPreference")) {

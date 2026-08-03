@@ -55,7 +55,8 @@
     "modelRedirects": "模型重定向",
     "allowedModels": "允许的模型",
     "thinkingBudget": "思考预算",
-    "adaptiveThinking": "自适应思考"
+    "adaptiveThinking": "自适应思考",
+    "codexCompactionV2Capability": "Responses 压缩 v2 能力"
   },
   "errors": {
     "nothingToApply": "没有可应用的变更。",

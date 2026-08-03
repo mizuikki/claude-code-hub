@@ -31,7 +31,16 @@ vi.mock("@/components/ui/input", () => ({
   Input: (props: any) => <input {...props} />,
 }));
 vi.mock("@/components/ui/select", () => ({
-  Select: ({ children }: any) => <div>{children}</div>,
+  Select: ({ children, onValueChange, value }: any) => (
+    <div data-select-value={value}>
+      {children}
+      <button
+        type="button"
+        data-testid="mock-select-native-v2"
+        onClick={() => onValueChange?.("native_v2")}
+      />
+    </div>
+  ),
   SelectContent: ({ children }: any) => <div>{children}</div>,
   SelectItem: ({ children, value }: any) => <div data-value={value}>{children}</div>,
   SelectTrigger: ({ children, className }: any) => <div className={className}>{children}</div>,
@@ -113,6 +122,7 @@ function createMockState(
       codexParallelToolCallsPreference: "inherit",
       codexImageGenerationPreference: "inherit",
       codexServiceTierPreference: "inherit",
+      codexCompactionV2Capability: "legacy_adapter",
       anthropicMaxTokensPreference: "inherit",
       anthropicThinkingBudgetPreference: "inherit",
       anthropicAdaptiveThinking: null,
@@ -295,6 +305,20 @@ describe("OptionsSection", () => {
       unmount();
     });
 
+    it("shows all Responses compaction v2 capability choices", () => {
+      const { container, unmount } = renderSection({
+        state: createMockState({ routing: { providerType: "codex" } }),
+      });
+
+      expect(getBodyText()).toContain("sections.routing.codexOverrides.compactionV2.label");
+      expect(container.querySelector('[data-value="native_v2"]')).toBeTruthy();
+      expect(container.querySelector('[data-value="legacy_adapter"]')).toBeTruthy();
+      expect(container.querySelector('[data-value="unsupported"]')).toBeTruthy();
+      expect(container.querySelector('[data-select-value="legacy_adapter"]')).toBeTruthy();
+
+      unmount();
+    });
+
     it("hides Anthropic overrides for codex type", () => {
       const { unmount } = renderSection({
         state: createMockState({ routing: { providerType: "codex" } }),
@@ -394,6 +418,26 @@ describe("OptionsSection", () => {
       expect(mockDispatch).toHaveBeenCalledWith({
         type: "SET_DISABLE_SESSION_REUSE",
         payload: true,
+      });
+
+      unmount();
+    });
+
+    it("dispatches SET_CODEX_COMPACTION_V2_CAPABILITY on selection", () => {
+      const { container, unmount } = renderSection({
+        state: createMockState({ routing: { providerType: "codex" } }),
+      });
+      const capabilitySelect = container.querySelector(
+        '[data-select-value="legacy_adapter"] [data-testid="mock-select-native-v2"]'
+      ) as HTMLButtonElement;
+
+      act(() => {
+        capabilitySelect.click();
+      });
+
+      expect(mockDispatch).toHaveBeenCalledWith({
+        type: "SET_CODEX_COMPACTION_V2_CAPABILITY",
+        payload: "native_v2",
       });
 
       unmount();

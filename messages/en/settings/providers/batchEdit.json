@@ -55,7 +55,8 @@
     "modelRedirects": "Model Redirects",
     "allowedModels": "Allowed Models",
     "thinkingBudget": "Thinking Budget",
-    "adaptiveThinking": "Adaptive Thinking"
+    "adaptiveThinking": "Adaptive Thinking",
+    "codexCompactionV2Capability": "Responses compaction v2 capability"
   },
   "errors": {
     "nothingToApply": "There are no changes to apply.",

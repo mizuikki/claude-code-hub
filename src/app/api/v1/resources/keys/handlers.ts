@@ -14,6 +14,7 @@ import {
   noContentResponse,
 } from "@/lib/api/v1/_shared/response-helpers";
 import {
+  KeyAdminCreateSchema,
   KeyCreateSchema,
   KeyEnableSchema,
   KeyIdParamSchema,
@@ -49,7 +50,7 @@ export async function listUserKeys(c: Context): Promise<Response> {
 export async function createUserKey(c: Context): Promise<Response> {
   const params = parseUserParams(c);
   if (params instanceof Response) return params;
-  const body = await parseHonoJsonBody(c, KeyCreateSchema);
+  const body = await parseHonoJsonBody(c, KeyAdminCreateSchema);
   if (!body.ok) return body.response;
   const actions = await import("@/actions/keys");
   const result = await callAction(

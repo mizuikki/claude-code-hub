@@ -18,6 +18,7 @@ const FIELD_LABEL_KEYS: Record<string, string> = {
   allowed_models: "fields.allowedModels",
   anthropic_thinking_budget_preference: "fields.thinkingBudget",
   anthropic_adaptive_thinking: "fields.adaptiveThinking",
+  codex_compaction_v2_capability: "fields.codexCompactionV2Capability",
 };
 
 import { Checkbox } from "@/components/ui/checkbox";

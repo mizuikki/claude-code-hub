@@ -4,13 +4,17 @@ WORKDIR /app
 COPY package.json ./
 RUN bun install
 
-FROM oven/bun:debian AS builder
+FROM node:22-slim AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV CI=true
-RUN --mount=type=cache,target=/app/.next/cache bun run build
+RUN --mount=type=cache,target=/app/.next/cache \
+    ./node_modules/.bin/tsgo -p tsconfig.json --noEmit \
+    && node node_modules/next/dist/bin/next build \
+    && node scripts/copy-version-to-standalone.cjs \
+    && node scripts/copy-custom-server-to-standalone.cjs
 
 FROM node:22-slim AS runner
 WORKDIR /app

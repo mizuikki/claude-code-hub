@@ -256,6 +256,30 @@ describe("affinity candidate cost limits", () => {
 });
 
 describe("ignore client session id semantics", () => {
+  test("does not route bound compaction state when its provider binding is unavailable", async () => {
+    const getProvidersSnapshot = vi.fn(async () => [
+      makeProvider(55, {
+        providerType: "codex",
+        codexCompactionV2Capability: "native_v2",
+      }),
+    ]);
+    const session = makeSession({
+      sessionId: "bound-compaction-without-provider",
+      originalFormat: "response",
+      shouldReuseProvider: () => false,
+      hasProviderBoundCompactionState: () => true,
+      isResponsesCompactionV2: () => true,
+      getRequiredCompactionProviderId: () => null,
+      getProvidersSnapshot,
+    });
+
+    const result = await ProxyProviderResolver.ensure(session);
+
+    expect(result?.status).toBe(503);
+    expect(session.provider).toBeNull();
+    expect(getProvidersSnapshot).not.toHaveBeenCalled();
+  });
+
   test("uses the actual matched fingerprint as the prefix Session identity", async () => {
     storeMocks.lookup
       .mockResolvedValueOnce({

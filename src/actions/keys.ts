@@ -110,6 +110,7 @@ class BatchUpdateError extends Error {
 export async function addKey(data: {
   userId: number;
   name: string;
+  key?: string;
   expiresAt?: string;
   isEnabled?: boolean;
   canLoginWebUi?: boolean;
@@ -151,6 +152,13 @@ export async function addKey(data: {
     }
 
     const isAdmin = session.user.role === "admin";
+    if (data.key !== undefined && !isAdmin) {
+      return {
+        ok: false,
+        error: tError("PERMISSION_DENIED"),
+        errorCode: ERROR_CODES.PERMISSION_DENIED,
+      };
+    }
 
     // 非 admin 创建 Key 时的分组验证：providerGroup 必须是用户现有分组的子集
     const { findUserById } = await import("@/repository/user");
@@ -340,7 +348,7 @@ export async function addKey(data: {
       };
     }
 
-    const generatedKey = `sk-${randomBytes(16).toString("hex")}`;
+    const generatedKey = data.key ?? `sk-${randomBytes(16).toString("hex")}`;
 
     // 转换 expiresAt: undefined → null（永不过期），string → Date（按系统时区解析）
     const timezone = await resolveSystemTimezone();
@@ -408,8 +416,9 @@ export async function addKey(data: {
     // 返回生成的key供前端显示
     return { ok: true, data: { id: createdKey.id, generatedKey, name: validatedData.name } };
   } catch (error) {
-    logger.error("添加密钥失败:", error);
-    const message = error instanceof Error ? error.message : "添加密钥失败，请稍后重试";
+    logger.error("addKey:create_failed", {
+      errorType: error instanceof Error ? error.name : "unknown",
+    });
     emitActionAudit({
       category: "key",
       action: "key.create",
@@ -421,7 +430,7 @@ export async function addKey(data: {
       errorMessage: "CREATE_FAILED",
       redactExtraKeys: ["key"],
     });
-    return { ok: false, error: message };
+    return { ok: false, error: "添加密钥失败，请稍后重试" };
   }
 }
 

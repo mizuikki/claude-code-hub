@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveEndpointPolicy } from "@/app/v1/_lib/proxy/endpoint-policy";
 import {
   BoundedStreamTextAccumulator,
@@ -27,6 +27,19 @@ import type { Provider } from "@/types/provider";
 const asyncTasks: Promise<void>[] = [];
 const registeredTasks: Array<{ taskType: string; promise: Promise<void> }> = [];
 const STREAM_STATS_HEAD_BYTES_FOR_TEST = 1024 * 1024;
+const envState = vi.hoisted(() => {
+  const originalDsn = process.env.DSN;
+  delete process.env.DSN;
+  return { originalDsn };
+});
+
+afterAll(() => {
+  if (envState.originalDsn === undefined) {
+    delete process.env.DSN;
+  } else {
+    process.env.DSN = envState.originalDsn;
+  }
+});
 
 vi.mock("@/app/v1/_lib/proxy/response-fixer", () => ({
   ResponseFixer: {

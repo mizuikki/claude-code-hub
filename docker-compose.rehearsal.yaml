@@ -1,0 +1,69 @@
+name: cch-compaction-v2-rehearsal
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: ${REHEARSAL_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${REHEARSAL_DB_PASSWORD:?set REHEARSAL_DB_PASSWORD}
+      POSTGRES_DB: ${REHEARSAL_DB_NAME:-claude_code_hub}
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - rehearsal-postgres:/var/lib/postgresql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${REHEARSAL_DB_USER:-postgres} -d ${REHEARSAL_DB_NAME:-claude_code_hub}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - rehearsal-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: claude-code-hub:compaction-v2-rehearsal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DSN: ${REHEARSAL_DSN:?set REHEARSAL_DSN with percent-encoded credentials}
+      REDIS_URL: redis://redis:6379
+      AUTO_MIGRATE: "true"
+      ENABLE_RATE_LIMIT: "true"
+      ADMIN_TOKEN: ${REHEARSAL_ADMIN_TOKEN:?set REHEARSAL_ADMIN_TOKEN}
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:${REHEARSAL_APP_PORT:-23591}:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "const host=require('node:os').hostname(); fetch(`http://$${host}:3000/api/actions/health`).then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  rehearsal-postgres:
+  rehearsal-redis:

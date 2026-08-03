@@ -184,6 +184,16 @@ const STREAM_SIGNALS: Record<ProtocolFamily, StreamSignal> = {
           "item.operation",
         ],
       },
+      {
+        // Responses compaction v2 carries opaque state instead of visible text.
+        eventTypes: ["response.output_item.added", "response.output_item.done"],
+        anyPaths: ["item.encrypted_content"],
+      },
+      {
+        // Accept a compact response that only emits its completed envelope.
+        eventTypes: ["response.completed"],
+        anyPaths: ["response.output.#.encrypted_content"],
+      },
     ],
     errorRules: [
       // 顶层 error 事件（code/message/param）

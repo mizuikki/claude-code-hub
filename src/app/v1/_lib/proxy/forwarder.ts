@@ -293,6 +293,7 @@ type DiscoveryBypassReason =
   | "websocket"
   | "streaming_hedge_disabled"
   | "raw_cross_provider_fallback"
+  | "provider_bound_compaction"
   | "missing_session"
   | "missing_key"
   | "redis_capability_unavailable"
@@ -4193,6 +4194,13 @@ export class ProxyForwarder {
     session: ProxySession,
     excludeProviderIds: number[] // 改为数组，排除所有失败的供应商
   ): Promise<typeof session.provider | null> {
+    if (session.hasProviderBoundCompactionState()) {
+      logger.warn("ProxyForwarder: Refusing failover for provider-bound compaction state", {
+        providerId: session.provider?.id ?? session.getRequiredCompactionProviderId(),
+        sessionId: session.sessionId,
+      });
+      return null;
+    }
     // 使用公开的选择方法，传入排除列表
     const alternativeProvider = await ProxyProviderResolver.pickRandomProviderWithExclusion(
       session,
@@ -4255,6 +4263,8 @@ export class ProxyForwarder {
       return { status: "skipped", reason: "streaming_hedge_disabled" };
     if (session.isRawCrossProviderFallbackEnabled())
       return { status: "skipped", reason: "raw_cross_provider_fallback" };
+    if (session.hasProviderBoundCompactionState())
+      return { status: "skipped", reason: "provider_bound_compaction" };
 
     const sessionId = session.sessionId;
     const keyId = session.authState?.key?.id ?? session.messageContext?.key?.id ?? null;

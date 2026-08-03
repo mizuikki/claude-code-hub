@@ -261,6 +261,7 @@ export async function createProvider(providerData: CreateProviderData): Promise<
     codexParallelToolCallsPreference: providerData.codex_parallel_tool_calls_preference ?? null,
     codexImageGenerationPreference: providerData.codex_image_generation_preference ?? null,
     codexServiceTierPreference: providerData.codex_service_tier_preference ?? null,
+    codexCompactionV2Capability: providerData.codex_compaction_v2_capability ?? "legacy_adapter",
     anthropicMaxTokensPreference: providerData.anthropic_max_tokens_preference ?? null,
     anthropicThinkingBudgetPreference: providerData.anthropic_thinking_budget_preference ?? null,
     anthropicAdaptiveThinking: providerData.anthropic_adaptive_thinking ?? null,
@@ -341,6 +342,7 @@ export async function createProvider(providerData: CreateProviderData): Promise<
         codexParallelToolCallsPreference: providers.codexParallelToolCallsPreference,
         codexImageGenerationPreference: providers.codexImageGenerationPreference,
         codexServiceTierPreference: providers.codexServiceTierPreference,
+        codexCompactionV2Capability: providers.codexCompactionV2Capability,
         anthropicMaxTokensPreference: providers.anthropicMaxTokensPreference,
         anthropicThinkingBudgetPreference: providers.anthropicThinkingBudgetPreference,
         anthropicAdaptiveThinking: providers.anthropicAdaptiveThinking,
@@ -430,6 +432,7 @@ export async function findProviderList(
       codexParallelToolCallsPreference: providers.codexParallelToolCallsPreference,
       codexImageGenerationPreference: providers.codexImageGenerationPreference,
       codexServiceTierPreference: providers.codexServiceTierPreference,
+      codexCompactionV2Capability: providers.codexCompactionV2Capability,
       anthropicMaxTokensPreference: providers.anthropicMaxTokensPreference,
       anthropicThinkingBudgetPreference: providers.anthropicThinkingBudgetPreference,
       anthropicAdaptiveThinking: providers.anthropicAdaptiveThinking,
@@ -519,6 +522,7 @@ export async function findAllProvidersFresh(): Promise<Provider[]> {
       codexParallelToolCallsPreference: providers.codexParallelToolCallsPreference,
       codexImageGenerationPreference: providers.codexImageGenerationPreference,
       codexServiceTierPreference: providers.codexServiceTierPreference,
+      codexCompactionV2Capability: providers.codexCompactionV2Capability,
       anthropicMaxTokensPreference: providers.anthropicMaxTokensPreference,
       anthropicThinkingBudgetPreference: providers.anthropicThinkingBudgetPreference,
       anthropicAdaptiveThinking: providers.anthropicAdaptiveThinking,
@@ -612,6 +616,7 @@ export async function findProviderById(id: number): Promise<Provider | null> {
       codexParallelToolCallsPreference: providers.codexParallelToolCallsPreference,
       codexImageGenerationPreference: providers.codexImageGenerationPreference,
       codexServiceTierPreference: providers.codexServiceTierPreference,
+      codexCompactionV2Capability: providers.codexCompactionV2Capability,
       anthropicMaxTokensPreference: providers.anthropicMaxTokensPreference,
       anthropicThinkingBudgetPreference: providers.anthropicThinkingBudgetPreference,
       anthropicAdaptiveThinking: providers.anthropicAdaptiveThinking,
@@ -741,6 +746,9 @@ export async function updateProvider(
     dbData.codexImageGenerationPreference = providerData.codex_image_generation_preference ?? null;
   if (providerData.codex_service_tier_preference !== undefined)
     dbData.codexServiceTierPreference = providerData.codex_service_tier_preference ?? null;
+  if (providerData.codex_compaction_v2_capability !== undefined)
+    dbData.codexCompactionV2Capability =
+      providerData.codex_compaction_v2_capability ?? "legacy_adapter";
   if (providerData.anthropic_max_tokens_preference !== undefined)
     dbData.anthropicMaxTokensPreference = providerData.anthropic_max_tokens_preference ?? null;
   if (providerData.anthropic_thinking_budget_preference !== undefined)
@@ -863,6 +871,7 @@ export async function updateProvider(
         codexParallelToolCallsPreference: providers.codexParallelToolCallsPreference,
         codexImageGenerationPreference: providers.codexImageGenerationPreference,
         codexServiceTierPreference: providers.codexServiceTierPreference,
+        codexCompactionV2Capability: providers.codexCompactionV2Capability,
         anthropicMaxTokensPreference: providers.anthropicMaxTokensPreference,
         anthropicThinkingBudgetPreference: providers.anthropicThinkingBudgetPreference,
         anthropicAdaptiveThinking: providers.anthropicAdaptiveThinking,
@@ -1102,6 +1111,7 @@ export interface BatchProviderUpdates {
   codexParallelToolCallsPreference?: string | null;
   codexImageGenerationPreference?: string | null;
   codexServiceTierPreference?: string | null;
+  codexCompactionV2Capability?: "native_v2" | "legacy_adapter" | "unsupported";
   anthropicMaxTokensPreference?: string | null;
   geminiGoogleSearchPreference?: string | null;
   // Rate Limit
@@ -1302,6 +1312,9 @@ export async function updateProvidersBatch(
   }
   if (updates.codexServiceTierPreference !== undefined) {
     setClauses.codexServiceTierPreference = updates.codexServiceTierPreference;
+  }
+  if (updates.codexCompactionV2Capability !== undefined) {
+    setClauses.codexCompactionV2Capability = updates.codexCompactionV2Capability;
   }
   if (updates.anthropicMaxTokensPreference !== undefined) {
     setClauses.anthropicMaxTokensPreference = updates.anthropicMaxTokensPreference;

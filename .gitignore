@@ -53,7 +53,10 @@ next-env.d.ts
 .cursor/
 .claude/
 .codex/
+.pi/
 .serena/
+.agents/
+.trellis/
 !src/app/dashboard/logs/
 !src/app/settings/logs/
 .idea/
