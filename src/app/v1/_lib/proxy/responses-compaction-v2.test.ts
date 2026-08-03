@@ -90,12 +90,20 @@ describe("Responses compaction v2", () => {
     );
   });
 
+  test("passes malformed native frames through and keeps inspecting later events", async () => {
+    const input = 'data: not-json\n\ndata: {"type":"response.completed","response":{}}\n\n';
+    expect(await read(processResponsesCompactionV2Stream(stream([input]), "native_v2"))).toBe(
+      input
+    );
+  });
+
   test("adapts legacy items across chunk boundaries and terminal output", async () => {
     const input =
       'event: response.output_item.added\ndata: {"type":"response.output_item.added","item":{"type":"compaction_summary","encrypted_content":"cipher","extra":1}}\n\nevent: response.output_item.done\ndata: {"type":"response.output_item.done","item":{"type":"compaction_summary","encrypted_content":"cipher","extra":1}}\n\nevent: response.completed\ndata: {"type":"response.completed","response":{"id":"r1","output":[{"type":"compaction_summary","encrypted_content":"cipher"}],"usage":{"input_tokens":2}}}\n\n';
+    const splitAt = input.indexOf('"item"');
     const output = await read(
       processResponsesCompactionV2Stream(
-        stream([input.slice(0, 37), input.slice(37)]),
+        stream([input.slice(0, splitAt), input.slice(splitAt)]),
         "legacy_adapter"
       )
     );

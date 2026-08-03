@@ -293,6 +293,7 @@ type DiscoveryBypassReason =
   | "websocket"
   | "streaming_hedge_disabled"
   | "raw_cross_provider_fallback"
+  | "provider_bound_compaction"
   | "missing_session"
   | "missing_key"
   | "redis_capability_unavailable"
@@ -4262,6 +4263,8 @@ export class ProxyForwarder {
       return { status: "skipped", reason: "streaming_hedge_disabled" };
     if (session.isRawCrossProviderFallbackEnabled())
       return { status: "skipped", reason: "raw_cross_provider_fallback" };
+    if (session.hasProviderBoundCompactionState())
+      return { status: "skipped", reason: "provider_bound_compaction" };
 
     const sessionId = session.sessionId;
     const keyId = session.authState?.key?.id ?? session.messageContext?.key?.id ?? null;

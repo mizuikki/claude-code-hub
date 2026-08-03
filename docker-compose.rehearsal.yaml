@@ -7,9 +7,9 @@ services:
       POSTGRES_USER: ${REHEARSAL_DB_USER:-postgres}
       POSTGRES_PASSWORD: ${REHEARSAL_DB_PASSWORD:?set REHEARSAL_DB_PASSWORD}
       POSTGRES_DB: ${REHEARSAL_DB_NAME:-claude_code_hub}
-      PGDATA: /var/lib/postgresql/data/pgdata
+      PGDATA: /var/lib/postgresql/18/docker
     volumes:
-      - rehearsal-postgres:/var/lib/postgresql/data
+      - rehearsal-postgres:/var/lib/postgresql
     healthcheck:
       test:
         [
@@ -43,7 +43,7 @@ services:
         condition: service_healthy
     environment:
       NODE_ENV: production
-      DSN: postgresql://${REHEARSAL_DB_USER:-postgres}:${REHEARSAL_DB_PASSWORD}@postgres:5432/${REHEARSAL_DB_NAME:-claude_code_hub}
+      DSN: ${REHEARSAL_DSN:?set REHEARSAL_DSN with percent-encoded credentials}
       REDIS_URL: redis://redis:6379
       AUTO_MIGRATE: "true"
       ENABLE_RATE_LIMIT: "true"

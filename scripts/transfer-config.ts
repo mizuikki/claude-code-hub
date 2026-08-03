@@ -40,9 +40,14 @@ async function loadSourceRows(sourceDsn: string): Promise<ConfigurationSourceRow
 }
 
 function items(value: unknown): Array<Record<string, unknown>> {
-  if (typeof value !== "object" || value === null) return [];
+  if (typeof value !== "object" || value === null) {
+    throw new Error("Target returned an invalid list response");
+  }
   const result = (value as { items?: unknown }).items;
-  return Array.isArray(result) ? (result as Array<Record<string, unknown>>) : [];
+  if (!Array.isArray(result)) {
+    throw new Error("Target returned an invalid list response");
+  }
+  return result as Array<Record<string, unknown>>;
 }
 
 function pageInfo(value: unknown): { hasMore: boolean; nextCursor?: string } {
@@ -97,6 +102,7 @@ export class ManagementApiTarget implements ConfigurationTransferTarget {
         ...(init.body ? { "Content-Type": "application/json" } : {}),
       },
       cache: "no-store",
+      signal: init.signal ?? AbortSignal.timeout(30_000),
     });
     if (!response.ok) {
       throw new Error(`Target API request failed: ${init.method ?? "GET"} ${path} (${response.status})`);
@@ -255,7 +261,8 @@ function requiredEnvironment(name: string): string {
 
 function normalizeTargetUrl(value: string): string {
   const url = new URL(value);
-  const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "::1";
+  const loopback =
+    url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
   if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
     throw new Error("CONFIG_TRANSFER_TARGET_URL must use HTTPS or a loopback HTTP address");
   }
@@ -275,8 +282,9 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   let sourceRows: ConfigurationSourceRows;
   try {
     sourceRows = await loadSourceRows(sourceDsn);
-  } catch {
-    throw new Error("Source database read-only preflight failed");
+  } catch (error) {
+    const errorType = error instanceof Error ? error.name : "unknown";
+    throw new Error(`Source database read-only preflight failed (${errorType})`);
   }
   const snapshot = buildConfigurationTransferSnapshot(sourceRows);
   const report = await runConfigurationTransfer({

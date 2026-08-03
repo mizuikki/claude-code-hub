@@ -209,7 +209,7 @@ function aggregateFingerprint(rows: SourceRow[], key: string, domain: string): s
   const hmac = createHmac("sha256", key);
   const ordered = rows
     .map((row) => `${rowId(row)}\0${String(row.key ?? "")}`)
-    .sort((a, b) => a.localeCompare(b));
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   hmac.update(domain);
   for (const value of ordered) hmac.update("\0").update(value);
   return hmac.digest("hex").slice(0, 20);
@@ -409,9 +409,10 @@ export async function runConfigurationTransfer(options: {
       const revealed = await options.target.revealUserKey(created.id);
       if (!secretsEqual(key.key, revealed)) throw new Error("User key verification failed");
     }
-  } catch {
+  } catch (error) {
+    const errorType = error instanceof Error ? error.name : "unknown";
     throw new Error(
-      `Configuration transfer failed during ${stage}; recreate the isolated target and rerun`
+      `Configuration transfer failed during ${stage} (${errorType}); recreate the isolated target and rerun`
     );
   }
 

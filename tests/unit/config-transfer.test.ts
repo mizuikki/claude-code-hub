@@ -451,7 +451,7 @@ describe("configuration transfer", () => {
   });
 
   test("counts every paginated user and redacted key before import", async () => {
-    const fetchMock = vi.fn(async (input: unknown) => {
+    const fetchMock = vi.fn(async (input: unknown, _init?: RequestInit) => {
       const url = new URL(String(input));
       const response = (body: unknown) =>
         new Response(JSON.stringify(body), {
@@ -506,6 +506,27 @@ describe("configuration transfer", () => {
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes("cursor=cursor-2"))).toBe(
       true
     );
+    expect(fetchMock.mock.calls.every(([, init]) => init?.signal instanceof AbortSignal)).toBe(
+      true
+    );
+  });
+
+  test("fails closed when the target list envelope is invalid", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Promise.resolve(
+          new Response(JSON.stringify({ data: [] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })
+        )
+      )
+    );
+
+    await expect(
+      new ManagementApiTarget("https://target.example/api/v1", "admin-token").countConfiguration()
+    ).rejects.toThrow("invalid list response");
   });
 
   test("reads the wrapped user response returned by the management API", async () => {

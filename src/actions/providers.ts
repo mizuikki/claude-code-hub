@@ -570,7 +570,7 @@ export async function addProvider(data: {
   codex_parallel_tool_calls_preference?: CodexParallelToolCallsPreference | null;
   codex_image_generation_preference?: CodexImageGenerationPreference | null;
   codex_service_tier_preference?: CodexServiceTierPreference | null;
-  codex_compaction_v2_capability?: CodexCompactionV2Capability | null;
+  codex_compaction_v2_capability?: CodexCompactionV2Capability;
   anthropic_max_tokens_preference?: AnthropicMaxTokensPreference | null;
   anthropic_thinking_budget_preference?: AnthropicThinkingBudgetPreference | null;
   anthropic_adaptive_thinking?: AnthropicAdaptiveThinkingConfig | null;
@@ -712,8 +712,15 @@ export async function addProvider(data: {
       // 不影响主流程，仅记录警告
     }
 
-    // 广播缓存更新（跨实例即时生效）
-    await broadcastProviderCacheInvalidation({ operation: "add", providerId: provider.id });
+    // 广播失败不应把已提交的创建结果报告为失败，否则客户端重试会创建重复记录。
+    try {
+      await broadcastProviderCacheInvalidation({ operation: "add", providerId: provider.id });
+    } catch (error) {
+      logger.warn("addProvider:cache_invalidation_failed", {
+        providerId: provider.id,
+        errorType: error instanceof Error ? error.name : "unknown",
+      });
+    }
 
     emitActionAudit({
       category: "provider",
@@ -786,7 +793,7 @@ export async function editProvider(
     codex_parallel_tool_calls_preference?: CodexParallelToolCallsPreference | null;
     codex_image_generation_preference?: CodexImageGenerationPreference | null;
     codex_service_tier_preference?: CodexServiceTierPreference | null;
-    codex_compaction_v2_capability?: CodexCompactionV2Capability | null;
+    codex_compaction_v2_capability?: CodexCompactionV2Capability;
     anthropic_max_tokens_preference?: AnthropicMaxTokensPreference | null;
     anthropic_thinking_budget_preference?: AnthropicThinkingBudgetPreference | null;
     anthropic_adaptive_thinking?: AnthropicAdaptiveThinkingConfig | null;

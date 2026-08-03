@@ -246,8 +246,12 @@ function terminalAwarePassthrough(source: ReadableStream<Uint8Array>): ReadableS
             pending = (pending + decoder.decode(value, { stream: true })).replace(/\r\n/g, "\n");
             let boundary = pending.indexOf("\n\n");
             while (boundary >= 0) {
-              const event = transformSseBlock(pending.slice(0, boundary), false);
-              if (event.type === "response.completed") successfulTerminal = true;
+              try {
+                const event = transformSseBlock(pending.slice(0, boundary), false);
+                if (event.type === "response.completed") successfulTerminal = true;
+              } catch {
+                // Native mode preserves upstream bytes even when a frame is not JSON.
+              }
               pending = pending.slice(boundary + 2);
               boundary = pending.indexOf("\n\n");
             }
